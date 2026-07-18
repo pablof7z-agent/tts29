@@ -15,16 +15,16 @@ use tts29_protocol::DurableArtifact;
 use crate::{ArtifactUploader, LocalAudioArtifact};
 
 pub trait Clock {
-    fn unix_seconds(&self) -> u64;
+    fn unix_millis(&self) -> u64;
 }
 
 pub struct SystemClock;
 
 impl Clock for SystemClock {
-    fn unix_seconds(&self) -> u64 {
+    fn unix_millis(&self) -> u64 {
         UNIX_EPOCH
             .elapsed()
-            .map_or(0, |duration| duration.as_secs())
+            .map_or(0, |duration| duration.as_millis() as u64)
     }
 }
 
@@ -147,7 +147,7 @@ impl ArtifactUploader for BlossomArtifactUploader {
         if hash.to_hex() != audio.sha256 || bytes.len() as u64 != audio.byte_count {
             return Err("synthesized audio changed before Blossom upload".into());
         }
-        let now = Timestamp::from(self.clock.unix_seconds());
+        let now = Timestamp::from(self.clock.unix_millis() / 1_000);
         let authorization = self.authorization(hash, now)?;
         let upload = self
             .runtime

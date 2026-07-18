@@ -49,6 +49,27 @@ The same NMP engine owns the active account and tracked NIP-29 publication.
 freezes the complete item before acceptance, journals the receipt ID, and then
 reattaches that receipt until the configured host acknowledges the signed event.
 
+The configured producer identity must already be authorized by the selected
+group host. TTS29 does not hand-roll NIP-29 membership or administration event
+schemas around NMP. Until the pinned public `nmp-nip29` module exposes those
+operations, a non-member remains a truthful host rejection on the tracked
+receipt rather than an implicit membership mutation.
+
+## Bounded answer waits
+
+After a job reaches `published`, a caller may open one explicit answer wait with
+its own timeout and cancellation token. The daemon observes the configured
+group through `group_content_demand`; it creates no parallel Nostr client or
+answer cache. Only answers related to the published event and valid for its
+frozen questions qualify.
+
+The shared protocol validator and `(created_at, event_id)` conflict order are
+used by both this operation and the Apple queue projection. Cancellation,
+timeout, engine closure, and a valid answer remain distinct results. The NMP
+subscription is withdrawn when the operation ends, and the daemon records no
+playback or item-ownership state.
+
 Integration tests run real HTTP boundaries on explicitly admitted loopback
 servers and exercise NMP signing, Blossom integrity validation, tracked receipt
-acceptance, group refusal, and Kokoro restart reuse without modifying NMP.
+acceptance, bounded answer observation, group refusal, and Kokoro restart reuse
+without modifying NMP.
