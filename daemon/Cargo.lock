@@ -1894,6 +1894,7 @@ version = "0.1.0"
 dependencies = [
  "nmp",
  "nmp-blossom",
+ "nmp-nip29",
  "reqwest",
  "serde",
  "serde_json",

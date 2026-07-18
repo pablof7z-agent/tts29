@@ -5,8 +5,9 @@ use std::time::Duration;
 use nmp::{Engine, EngineConfig, RelayUrl};
 
 use crate::{
-    BlossomArtifactUploader, BlossomUploadConfig, FileJobJournal, JobRecord, KokoroConfig,
-    KokoroSynthesizer, NmpPublisher, ProducerError, ProducerRequest, ProducerRunner, SystemClock,
+    AnswerWaitCancel, AnswerWaitError, AnswerWaiter, BlossomArtifactUploader, BlossomUploadConfig,
+    FileJobJournal, JobRecord, KokoroConfig, KokoroSynthesizer, NmpPublisher, ProducerError,
+    ProducerRequest, ProducerRunner, SystemClock,
 };
 
 type ProductionRunner =
@@ -29,6 +30,7 @@ pub struct ProductionProducer {
     engine: Arc<Engine>,
     author: String,
     group_id: String,
+    answer_waiter: AnswerWaiter,
 }
 
 impl ProductionProducer {
@@ -60,6 +62,12 @@ impl ProductionProducer {
             config.blossom,
             Arc::new(SystemClock),
         )?;
+        let answer_waiter = AnswerWaiter::new(
+            Arc::clone(&engine),
+            host.clone(),
+            config.group_id.clone(),
+            Arc::new(SystemClock),
+        );
         let publisher = NmpPublisher::new(
             Arc::clone(&engine),
             host,
@@ -76,6 +84,7 @@ impl ProductionProducer {
             engine,
             author: author_key.to_hex(),
             group_id: config.group_id,
+            answer_waiter,
         })
     }
 
@@ -96,6 +105,15 @@ impl ProductionProducer {
 
     pub fn advance(&mut self, request_id: &str) -> Result<JobRecord, ProducerError> {
         self.runner.advance(request_id)
+    }
+
+    pub fn wait_for_answer(
+        &self,
+        job: &JobRecord,
+        timeout: Duration,
+        cancel: &AnswerWaitCancel,
+    ) -> Result<tts29_protocol::AnswerBundle, AnswerWaitError> {
+        self.answer_waiter.wait(job, timeout, cancel)
     }
 
     pub fn shutdown(&self) {

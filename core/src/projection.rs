@@ -4,8 +4,8 @@ use nmp::{AcquisitionEvidence, Row};
 
 use crate::model::{KernelConfiguration, KernelPhase, QueueEvidence, QueueSnapshot};
 use tts29_protocol::{
-    parse, Acknowledgement, AcknowledgementState, AnswerBundle, ParsedEvent, Question,
-    QuestionKind, Reaction, ReactionSummary, SpokenItem,
+    parse, valid_answer, Acknowledgement, AcknowledgementState, AnswerBundle, ParsedEvent,
+    Reaction, ReactionSummary, SpokenItem,
 };
 
 const MAX_PROJECTED_ITEMS: usize = 40;
@@ -75,7 +75,7 @@ pub fn project(
             let candidates = answers.remove(&item.id).unwrap_or_default();
             let (valid, invalid): (Vec<_>, Vec<_>) = candidates
                 .into_iter()
-                .partition(|answer| valid_answer(&item, answer));
+                .partition(|answer| valid_answer(&item.questions, answer));
             rejected_event_count += invalid.len();
             item.answer = valid
                 .into_iter()
@@ -121,34 +121,6 @@ fn replace_latest<K: Ord, V>(
     if should_replace {
         values.insert(key, candidate);
     }
-}
-
-fn valid_answer(item: &SpokenItem, answer: &AnswerBundle) -> bool {
-    let questions = item
-        .questions
-        .iter()
-        .map(|question| (question.id.as_str(), question))
-        .collect::<BTreeMap<_, _>>();
-    answer.answers.iter().all(|value| {
-        let Some(question) = questions.get(value.question_id.as_str()) else {
-            return false;
-        };
-        let selected = value.values.iter().collect::<BTreeSet<_>>();
-        if selected.len() != value.values.len() {
-            return false;
-        }
-        match question.kind {
-            QuestionKind::Freeform => value.values.len() == 1,
-            QuestionKind::SingleChoice => {
-                value.values.len() == 1 && option_ids(question).is_superset(&selected)
-            }
-            QuestionKind::MultipleChoice => option_ids(question).is_superset(&selected),
-        }
-    })
-}
-
-fn option_ids(question: &Question) -> BTreeSet<&String> {
-    question.options.iter().map(|option| &option.id).collect()
 }
 
 fn reaction_summaries(

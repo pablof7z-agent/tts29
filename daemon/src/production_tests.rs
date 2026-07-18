@@ -76,7 +76,7 @@ fn blossom_upload_is_signed_by_nmp_and_integrity_checked() {
         Arc::clone(&engine),
         account.public_key(),
         config,
-        Arc::new(FixedClock(1_700_000_000)),
+        Arc::new(FixedClock(1_700_000_000_000)),
     )
     .unwrap();
 
@@ -132,7 +132,7 @@ fn nmp_publisher_accepts_only_the_configured_group_and_tracks_the_receipt() {
 struct FixedClock(u64);
 
 impl Clock for FixedClock {
-    fn unix_seconds(&self) -> u64 {
+    fn unix_millis(&self) -> u64 {
         self.0
     }
 }
