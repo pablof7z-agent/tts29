@@ -20,3 +20,6 @@ xcodebuildmcp simulator test \
 
 The project was initially scaffolded with XcodeBuildMCP. Continue to use its
 CLI for builds, tests, launches, logs, and simulator UI inspection.
+
+The native playback ownership and lifecycle contract is documented in
+[../docs/apple-playback.md](../docs/apple-playback.md).

@@ -19,12 +19,17 @@ private func stopKernel(_ handle: UnsafeMutableRawPointer?)
 @Observable
 @MainActor
 public final class TTS29Store {
-    public private(set) var snapshot = QueueSnapshot.initial
+    public private(set) var snapshot: QueueSnapshot
     private var isRunning = false
+    private let usesInjectedSnapshot: Bool
 
-    public init() {}
+    public init(initialSnapshot: QueueSnapshot? = nil) {
+        snapshot = initialSnapshot ?? .initial
+        usesInjectedSnapshot = initialSnapshot != nil
+    }
 
     public func run() async {
+        guard !usesInjectedSnapshot else { return }
         guard !isRunning else { return }
         isRunning = true
         defer { isRunning = false }
