@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use nmp::Row;
 
-use crate::model::{DurableArtifact, Question, QuestionKind, QuestionOption};
+use crate::{DurableArtifact, Question, QuestionKind, QuestionOption};
 
 const MAX_ARTIFACT_BYTES: u64 = 250 * 1024 * 1024;
 

@@ -74,6 +74,7 @@ make one bounded NMP answer observation after publication. Timeout is returned
 alongside the durable publication evidence; it does not undo publication or
 make the caller own the spoken item.
 
-This request/response model is also the contract boundary for the later HTTPS
-MCP ingress. That adapter must add remote authentication and admission, then
-call the same daemon service rather than reproduce producer capabilities.
+This request/response model is also the contract boundary used by the HTTPS
+MCP ingress. That adapter adds remote authentication and admission, then calls
+the same daemon service rather than reproducing producer capabilities. See
+[remote-producer.md](remote-producer.md).

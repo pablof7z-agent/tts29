@@ -1,6 +1,7 @@
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[derive(Clone, Debug, Deserialize, JsonSchema, PartialEq, Serialize)]
 pub struct DurableArtifact {
     pub url: String,
     pub sha256: String,
@@ -9,7 +10,7 @@ pub struct DurableArtifact {
     pub label: Option<String>,
 }
 
-#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
+#[derive(Clone, Copy, Debug, Deserialize, JsonSchema, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum QuestionKind {
     SingleChoice,
@@ -17,14 +18,14 @@ pub enum QuestionKind {
     Freeform,
 }
 
-#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[derive(Clone, Debug, Deserialize, JsonSchema, PartialEq, Serialize)]
 pub struct QuestionOption {
     pub id: String,
     pub title: String,
     pub description: Option<String>,
 }
 
-#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[derive(Clone, Debug, Deserialize, JsonSchema, PartialEq, Serialize)]
 pub struct Question {
     pub id: String,
     pub kind: QuestionKind,
@@ -34,13 +35,13 @@ pub struct Question {
     pub options: Vec<QuestionOption>,
 }
 
-#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[derive(Clone, Debug, Deserialize, JsonSchema, PartialEq, Serialize)]
 pub struct QuestionAnswer {
     pub question_id: String,
     pub values: Vec<String>,
 }
 
-#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[derive(Clone, Debug, Deserialize, JsonSchema, PartialEq, Serialize)]
 pub struct AnswerBundle {
     pub event_id: String,
     pub author: String,
@@ -48,7 +49,7 @@ pub struct AnswerBundle {
     pub answers: Vec<QuestionAnswer>,
 }
 
-#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
+#[derive(Clone, Copy, Debug, Deserialize, JsonSchema, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AcknowledgementState {
     Active,
@@ -57,7 +58,7 @@ pub enum AcknowledgementState {
     Archived,
 }
 
-#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[derive(Clone, Debug, Deserialize, JsonSchema, PartialEq, Serialize)]
 pub struct Acknowledgement {
     pub event_id: String,
     pub author: String,
@@ -66,14 +67,14 @@ pub struct Acknowledgement {
     pub reason: Option<String>,
 }
 
-#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[derive(Clone, Debug, Deserialize, JsonSchema, PartialEq, Serialize)]
 pub struct ReactionSummary {
     pub emoji: String,
     pub count: usize,
     pub authors: Vec<String>,
 }
 
-#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[derive(Clone, Debug, Deserialize, JsonSchema, PartialEq, Serialize)]
 pub struct SpokenItem {
     pub id: String,
     pub author: String,

@@ -1,0 +1,9 @@
+[package]
+name = "tts29-contract"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+
+[dependencies]
+schemars = "1.2.1"
+serde = { version = "1", features = ["derive"] }

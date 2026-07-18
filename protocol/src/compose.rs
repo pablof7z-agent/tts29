@@ -4,9 +4,9 @@ use nmp::{PublicKey, RelayUrl, Timestamp, WriteIntent};
 use nmp_nip29::{compose_group_send, GroupTimelineEvidence};
 use serde::{Deserialize, Serialize};
 
-use crate::model::{DurableArtifact, Question, QuestionKind};
 use crate::parse::tags::{artifact, bounded, identifier};
 use crate::parse::VERSION;
+use crate::{DurableArtifact, Question, QuestionKind};
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct FrozenSpokenItem {

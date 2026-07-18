@@ -1,0 +1,24 @@
+{
+  "bind": "0.0.0.0:8443",
+  "resource": "https://tts.example.com/mcp",
+  "authorization_servers": [
+    "https://auth.example.com"
+  ],
+  "issuer": "https://auth.example.com",
+  "audience": "https://tts.example.com/mcp",
+  "required_scope": "tts29:publish",
+  "jwks_path": "authorization-server.jwks.json",
+  "daemon_socket_path": "../daemon/state/runtime/daemon.sock",
+  "tls_certificate_path": "tls/fullchain.pem",
+  "tls_private_key_path": "tls/private-key.pem",
+  "allowed_hosts": [
+    "tts.example.com"
+  ],
+  "allowed_origins": [
+    "https://assistant.example.com"
+  ],
+  "max_request_bytes": 131072,
+  "max_response_bytes": 65536,
+  "max_concurrency": 16,
+  "execution_timeout_seconds": 330
+}

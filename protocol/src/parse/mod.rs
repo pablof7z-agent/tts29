@@ -4,9 +4,7 @@ use std::collections::BTreeSet;
 
 use nmp::Row;
 
-use crate::model::{
-    Acknowledgement, AcknowledgementState, AnswerBundle, QuestionAnswer, SpokenItem,
-};
+use crate::{Acknowledgement, AcknowledgementState, AnswerBundle, QuestionAnswer, SpokenItem};
 use tags::{
     artifact, bounded, group_matches, identifier, marker, optional, root_event, rows, unique,
 };
