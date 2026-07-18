@@ -16,6 +16,29 @@ final class TTS29UITests: XCTestCase {
     }
 
     @MainActor
+    func testConnectionSettingsOpenWithStandaloneDefaults() throws {
+        let app = XCUIApplication()
+        app.launch()
+
+        let connection = app.buttons["tts29.connection"]
+        XCTAssertTrue(connection.waitForExistence(timeout: 5))
+        connection.tap()
+
+        XCTAssertTrue(app.navigationBars["Connection"].waitForExistence(timeout: 5))
+        let relay = app.textFields["tts29.connection.relay"]
+        let group = app.textFields["tts29.connection.group"]
+        XCTAssertTrue(relay.waitForExistence(timeout: 5))
+        XCTAssertTrue(group.waitForExistence(timeout: 5))
+        XCTAssertFalse((relay.value as? String ?? "").isEmpty)
+        XCTAssertFalse((group.value as? String ?? "").isEmpty)
+
+        let save = app.buttons["tts29.connection.save"]
+        XCTAssertTrue(save.isEnabled)
+        save.tap()
+        XCTAssertFalse(app.navigationBars["Connection"].waitForExistence(timeout: 2))
+    }
+
+    @MainActor
     func testProjectedAudioCanStartInTheSimulator() throws {
         let app = XCUIApplication()
         app.launchEnvironment["TTS29_UI_AUDIO_BASE64"] = Self.waveFixture.base64EncodedString()

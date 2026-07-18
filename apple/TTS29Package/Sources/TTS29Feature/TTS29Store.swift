@@ -67,12 +67,7 @@ public final class TTS29Store {
                 withIntermediateDirectories: true
             )
         }
-        guard let resource = Bundle.module.url(
-            forResource: "Bootstrap",
-            withExtension: "json"
-        ),
-        let data = try? Data(contentsOf: resource),
-        let bootstrap = try? JSONDecoder().decode(BootstrapConfiguration.self, from: data) else {
+        guard let bootstrap = ConnectionSettings.current() else {
             return nil
         }
         let configuration = KernelConfiguration(
@@ -94,16 +89,6 @@ private struct KernelConfiguration: Encodable {
         case relay
         case groupID = "group_id"
         case storePath = "store_path"
-    }
-}
-
-private struct BootstrapConfiguration: Decodable {
-    let relay: String
-    let groupID: String
-
-    enum CodingKeys: String, CodingKey {
-        case relay
-        case groupID = "group_id"
     }
 }
 

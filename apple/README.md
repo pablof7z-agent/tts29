@@ -23,6 +23,8 @@ CLI for builds, tests, launches, logs, and simulator UI inspection.
 
 The native playback ownership and lifecycle contract is documented in
 [../docs/apple-playback.md](../docs/apple-playback.md).
+Device-library, signing, and standalone release requirements are documented in
+[../docs/releases.md](../docs/releases.md).
 
 The shared feature also powers the XcodeBuildMCP-scaffolded native Mac shell in
 [`TTS29Mac`](TTS29Mac/README.md). Build its host Rust library with

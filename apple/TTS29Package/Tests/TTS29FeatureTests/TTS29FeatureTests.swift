@@ -10,6 +10,22 @@ import Testing
     #expect(snapshot.statusMessage == "Starting NMP queue…")
 }
 
+@Test func savedConnectionOverridesBundledBootstrapIndependently() {
+    let suite = "tts29.connection.\(UUID().uuidString)"
+    let defaults = UserDefaults(suiteName: suite)!
+    defer { defaults.removePersistentDomain(forName: suite) }
+    let fallback = ConnectionSettings(
+        relay: "wss://default.example",
+        groupID: "default"
+    )
+    defaults.set("wss://user.example", forKey: ConnectionSettings.relayKey)
+
+    let resolved = ConnectionSettings.resolve(defaults: defaults, fallback: fallback)
+
+    #expect(resolved.relay == "wss://user.example")
+    #expect(resolved.groupID == "default")
+}
+
 @MainActor
 @Test func playbackIsLocalAndStopsWhenTheProjectedItemDisappears() {
     let backend = FakePlaybackBackend()

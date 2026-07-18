@@ -31,6 +31,8 @@ hosted ingress surfaces:
   override without entering config, journals, logs, or responses; and
 - retrying the same request ID resumes the author-bound job instead of creating
   another spoken item; and
+- the daemon verifies request-author membership and repairs missing membership
+  through its authorized identity before spoken publication; and
 - a separate HTTPS MCP process validates OAuth issuer, audience, and publish
   scope before forwarding the same bounded request over the private socket.
 
@@ -67,6 +69,8 @@ The Rust dependency is pinned to an exact NMP revision in `core/Cargo.toml`.
 Building TTS29 never edits the NMP checkout or repository.
 
 The executable event contract is documented in [docs/protocol.md](docs/protocol.md).
+The intentional hard cut from the paired-device product is documented in
+[docs/migration.md](docs/migration.md).
 
 ## Product crates
 
@@ -86,6 +90,8 @@ The local daemon and CLI contract is documented in
 [docs/local-producer.md](docs/local-producer.md).
 The hosted assistant boundary is documented in
 [docs/remote-producer.md](docs/remote-producer.md).
+Standalone release ownership and signing prerequisites are documented in
+[docs/releases.md](docs/releases.md).
 
 ## Work tracking
 

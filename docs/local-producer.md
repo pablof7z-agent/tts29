@@ -31,10 +31,12 @@ Kokoro can instead use `TTS29_KOKORO_BASIC_USERNAME` and
 The daemon key, Kokoro credentials, and request-only agent key have no config,
 journal, response, or debug representation.
 
-The configured daemon identity must already be authorized to the NIP-29 group.
-An agent identity must likewise be authorized by the host; a host refusal stays
-visible on the NMP receipt. TTS29 does not invent membership events outside the
-pinned public `nmp-nip29` API.
+The configured daemon identity must have authority to add publishers to the
+NIP-29 group. Before spoken publication, the daemon reads current admin/member
+state from the selected host through NMP. An existing member proceeds without
+an administrative write; a missing request author is added through the
+daemon-owned identity and the public NMP NIP-29 group composer. Host refusal or
+ambiguous delivery stops publication with retained receipt evidence.
 
 ## Submit speech
 

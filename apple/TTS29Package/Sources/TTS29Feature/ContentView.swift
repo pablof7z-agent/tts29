@@ -3,6 +3,7 @@ import SwiftUI
 public struct ContentView: View {
     @State private var store: TTS29Store
     @State private var playback = PlaybackController()
+    @State private var showsConnectionSettings = false
 
     public init(initialSnapshot: QueueSnapshot? = nil) {
         _store = State(initialValue: TTS29Store(initialSnapshot: initialSnapshot))
@@ -25,6 +26,12 @@ public struct ContentView: View {
                 }
             }
             .navigationTitle("TTS29")
+            .toolbar {
+                Button("Connection", systemImage: "network") {
+                    showsConnectionSettings = true
+                }
+                .accessibilityIdentifier("tts29.connection")
+            }
             .safeAreaInset(edge: .bottom) {
                 QueueStatus(snapshot: store.snapshot)
             }
@@ -34,6 +41,9 @@ public struct ContentView: View {
         }
         .onChange(of: store.snapshot.items.map(PlaybackSource.init), initial: true) {
             playback.synchronize(with: store.snapshot.items)
+        }
+        .sheet(isPresented: $showsConnectionSettings) {
+            ConnectionSettingsView()
         }
     }
 }
