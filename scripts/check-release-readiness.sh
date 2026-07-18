@@ -40,6 +40,10 @@ read_setting() {
   ' "$file"
 }
 
+read_crate_version() {
+  sed -nE 's/^version = "([^"]+)"/\1/p' "$1" | head -n 1
+}
+
 check_equal() {
   local actual=$1
   local expected=$2
@@ -108,16 +112,25 @@ mac_config="$repo_root/apple/TTS29Mac/Config/Shared.xcconfig"
 
 ios_version=$(read_setting "$ios_config" MARKETING_VERSION)
 mac_version=$(read_setting "$mac_config" MARKETING_VERSION)
+ios_build=$(read_setting "$ios_config" CURRENT_PROJECT_VERSION)
+mac_build=$(read_setting "$mac_config" CURRENT_PROJECT_VERSION)
 ios_bundle_id=$(read_setting "$ios_config" PRODUCT_BUNDLE_IDENTIFIER)
 mac_bundle_id=$(read_setting "$mac_config" PRODUCT_BUNDLE_IDENTIFIER)
 ios_team=$(read_setting "$ios_config" DEVELOPMENT_TEAM)
 mac_team=$(read_setting "$mac_config" DEVELOPMENT_TEAM)
 
 check_equal "$ios_version" "$mac_version" "Apple marketing versions"
+check_equal "$ios_build" "$mac_build" "Apple build numbers"
 check_equal "$ios_bundle_id" "com.pablof7z.tts29" "iOS bundle identifier"
 check_equal "$mac_bundle_id" "com.pablof7z.tts29.macos" "macOS bundle identifier"
 check_equal "$ios_team" "456SHKPP26" "iOS development team"
 check_equal "$mac_team" "456SHKPP26" "macOS development team"
+
+crate_manifests=(contract core daemon mcp producer-api protocol)
+for crate in "${crate_manifests[@]}"; do
+  crate_version=$(read_crate_version "$repo_root/$crate/Cargo.toml")
+  check_equal "$crate_version" "$ios_version" "$crate crate version"
+done
 
 for config in "$ios_config" "$mac_config"; do
   if grep -Eq '^INFOPLIST_KEY_ITSAppUsesNonExemptEncryption[[:space:]]*=[[:space:]]*NO$' "$config"; then
@@ -164,6 +177,7 @@ fi
 release_build=${TTS29_BUILD_NUMBER:-}
 if [[ "$release_build" =~ ^[0-9]{12}$ ]]; then
   pass "UTC build number is configured"
+  check_equal "$ios_build" "$release_build" "Tagged Apple build number"
 else
   fail "TTS29_BUILD_NUMBER must be a 12-digit UTC timestamp"
 fi

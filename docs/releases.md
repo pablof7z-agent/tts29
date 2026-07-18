@@ -15,7 +15,7 @@ input.
 Both Apple products use team `456SHKPP26`. Their generated Info.plists declare
 `ITSAppUsesNonExemptEncryption = NO` in source. Release tags use one product
 version such as `v0.1.0`; Apple build numbers are monotonically increasing UTC
-timestamps supplied at archive time.
+timestamps committed to both `Shared.xcconfig` files before the release tag.
 
 ## Reproducible Apple gates
 
@@ -62,9 +62,11 @@ Validate repository-owned metadata while preparing a change:
 scripts/check-release-readiness.sh --source-only
 ```
 
-On the clean release commit, create the version tag and supply only credential
-metadata and paths to the full preflight. The script never prints credential or
-profile contents:
+In a release-preparation pull request, set `CURRENT_PROJECT_VERSION` in both
+Apple `Shared.xcconfig` files to the same 12-digit UTC timestamp. Merge that
+change, tag the clean release commit, and supply only credential metadata and
+paths to the full preflight. The script verifies the configured build number
+and never prints credential or profile contents:
 
 ```bash
 TTS29_RELEASE_TAG=v0.1.0 \
@@ -83,13 +85,13 @@ MobileDevice or UserData profile locations.
 ## Signed delivery
 
 1. Obtain explicit authority for App Store Connect upload and notarization.
-2. Start from a clean commit tagged with the shared marketing version.
+2. Merge the shared timestamp build-number change, then tag that clean commit
+   with the shared marketing version.
 3. Run the Rust builds and every XcodeBuildMCP gate above, then run the full
    release preflight.
 4. Archive the iOS app in Xcode and distribute it through Organizer using the
    local Apple Distribution identity and matching App Store profile. Keep
-   signing manual, set the timestamp build number at archive time, and upload
-   to App Store Connect.
+   signing manual and upload to App Store Connect.
 5. After processing completes, install the TestFlight build on a real device
    and verify launch, group projection, and audio playback.
 6. Archive the macOS app in Xcode, distribute it with the local Developer ID
