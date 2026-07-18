@@ -43,7 +43,8 @@ handle to fire, unblocking the query owner before NMP engine shutdown.
 - Relay events enter only through the NMP subscription.
 - Relay acquisition state enters only through NMP scoped evidence.
 - Application lifecycle cancellation enters through the FFI stop action.
-- Apple audio results will enter through a future raw capability-result action.
+- Apple audio callbacks enter only the device-local playback controller and are
+  never projected as shared queue facts.
 
 ## Bounds
 

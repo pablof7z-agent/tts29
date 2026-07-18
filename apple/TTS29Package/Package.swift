@@ -5,7 +5,7 @@ import PackageDescription
 
 let package = Package(
     name: "TTS29Feature",
-    platforms: [.iOS(.v17)],
+    platforms: [.iOS(.v17), .macOS(.v14)],
     products: [
         // Products define the executables and libraries a package produces, making them visible to other packages.
         .library(
@@ -29,7 +29,11 @@ let package = Package(
                 .unsafeFlags([
                     "-L../../core/target/aarch64-apple-ios-sim/release",
                     "-ltts29_core",
-                ])
+                ], .when(platforms: [.iOS])),
+                .unsafeFlags([
+                    "-L../../core/target/release",
+                    "-ltts29_core",
+                ], .when(platforms: [.macOS])),
             ]
         ),
     ]

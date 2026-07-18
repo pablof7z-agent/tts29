@@ -9,21 +9,22 @@ projection, never the authority.
 
 ## Current slice
 
-The first vertical slice proves the architecture on iOS:
+The current Apple slice proves the architecture on iOS and macOS:
 
 - an app-specific Rust kernel consumes NMP's public Rust facade;
 - NMP owns the pinned group query, canonical event store, relay work, and
   acquisition evidence;
 - the Rust kernel validates the versioned spoken-item contract and bounds the
   convergent queue projection;
-- SwiftUI renders that projection without implementing Nostr or product policy;
+- shared SwiftUI renders that projection without implementing Nostr or product
+  policy, while each platform executes playback locally through AVPlayer;
 - lifecycle cancellation withdraws the query and shuts NMP down cleanly.
 
 The live development defaults point at the existing public TTS group on
 `wss://nip29.f7z.io`, group `tts`. They are bootstrap defaults, not a claim
 that one public group is the finished account model.
 
-## Build the iOS slice
+## Build the Apple clients
 
 Requirements: Rust with the `aarch64-apple-ios-sim` target, Xcode, and
 XcodeBuildMCP CLI.
@@ -38,6 +39,14 @@ xcodebuildmcp simulator build-and-run \
   --workspace-path apple/TTS29.xcworkspace \
   --scheme TTS29 \
   --simulator-name "iPhone 17 Pro"
+
+scripts/build-rust-macos.sh
+xcodebuildmcp swift-package test \
+  --package-path apple/TTS29Package \
+  --configuration debug
+xcodebuildmcp macos build-and-run \
+  --workspace-path apple/TTS29Mac/TTS29Mac.xcworkspace \
+  --scheme TTS29Mac
 ```
 
 The Rust dependency is pinned to an exact NMP revision in `core/Cargo.toml`.
