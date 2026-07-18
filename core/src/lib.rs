@@ -1,6 +1,10 @@
 mod model;
 mod projection;
+mod protocol;
 mod runtime;
+
+#[cfg(test)]
+mod projection_tests;
 
 use std::ffi::{c_char, c_void, CStr, CString};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -79,6 +83,13 @@ struct KernelHandle {
 }
 
 #[no_mangle]
+/// Starts one event-driven TTS29 kernel and returns its opaque owner handle.
+///
+/// # Safety
+///
+/// `configuration_json` must point to a valid NUL-terminated string for this
+/// call. `context` must remain valid for callbacks until the returned handle is
+/// passed exactly once to [`tts29_stop`].
 pub unsafe extern "C" fn tts29_start(
     configuration_json: *const c_char,
     callback: Option<SnapshotCallback>,
@@ -117,6 +128,12 @@ pub unsafe extern "C" fn tts29_start(
 }
 
 #[no_mangle]
+/// Cancels, joins, and releases a handle returned by [`tts29_start`].
+///
+/// # Safety
+///
+/// `handle` must be null or a live handle returned by [`tts29_start`], and a
+/// non-null handle must be passed to this function no more than once.
 pub unsafe extern "C" fn tts29_stop(handle: *mut c_void) {
     if handle.is_null() {
         return;

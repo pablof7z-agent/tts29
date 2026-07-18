@@ -14,7 +14,8 @@ The first vertical slice proves the architecture on iOS:
 - an app-specific Rust kernel consumes NMP's public Rust facade;
 - NMP owns the pinned group query, canonical event store, relay work, and
   acquisition evidence;
-- the Rust kernel decodes and bounds the spoken queue projection;
+- the Rust kernel validates the versioned spoken-item contract and bounds the
+  convergent queue projection;
 - SwiftUI renders that projection without implementing Nostr or product policy;
 - lifecycle cancellation withdraws the query and shuts NMP down cleanly.
 
@@ -41,6 +42,8 @@ xcodebuildmcp simulator build-and-run \
 
 The Rust dependency is pinned to an exact NMP revision in `core/Cargo.toml`.
 Building TTS29 never edits the NMP checkout or repository.
+
+The executable event contract is documented in [docs/protocol.md](docs/protocol.md).
 
 ## Work tracking
 
