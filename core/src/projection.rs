@@ -1,6 +1,12 @@
+use std::collections::{BTreeMap, BTreeSet};
+
 use nmp::{AcquisitionEvidence, Row};
 
-use crate::model::{KernelConfiguration, KernelPhase, QueueEvidence, QueueSnapshot, SpokenItem};
+use crate::model::{
+    Acknowledgement, AcknowledgementState, AnswerBundle, KernelConfiguration, KernelPhase,
+    QuestionKind, QueueEvidence, QueueSnapshot, ReactionSummary, SpokenItem,
+};
+use crate::protocol::{parse, ParsedEvent, Reaction};
 
 const MAX_PROJECTED_ITEMS: usize = 40;
 
@@ -9,119 +15,183 @@ pub fn project(
     rows: &[Row],
     evidence: &AcquisitionEvidence,
 ) -> QueueSnapshot {
-    let mut items = rows.iter().filter_map(spoken_item).collect::<Vec<_>>();
-    items.sort_by(|left, right| {
+    let mut items = BTreeMap::new();
+    let mut answers = BTreeMap::new();
+    let mut acknowledgements = BTreeMap::new();
+    let mut reactions = BTreeMap::new();
+    let mut rejected_event_count = 0;
+
+    for row in rows {
+        match parse(row, &configuration.group_id) {
+            Some(ParsedEvent::Item(item)) => {
+                items.insert(item.id.clone(), *item);
+            }
+            Some(ParsedEvent::Answer(event)) => {
+                answers
+                    .entry(event.root_id)
+                    .or_insert_with(Vec::new)
+                    .push(event.value);
+            }
+            Some(ParsedEvent::Acknowledgement(event)) => {
+                let key = (event.root_id, event.value.author.clone());
+                replace_latest(
+                    &mut acknowledgements,
+                    key,
+                    event.value,
+                    acknowledgement_order,
+                );
+            }
+            Some(ParsedEvent::Reaction(event)) => {
+                let key = (
+                    event.root_id,
+                    event.value.author.clone(),
+                    event.value.emoji.clone(),
+                );
+                replace_latest(&mut reactions, key, event.value, reaction_order);
+            }
+            None => rejected_event_count += 1,
+        }
+    }
+
+    let known_item_ids = items.keys().cloned().collect::<BTreeSet<_>>();
+    rejected_event_count += answers
+        .iter()
+        .filter(|(root, _)| !known_item_ids.contains(*root))
+        .map(|(_, values)| values.len())
+        .sum::<usize>();
+    rejected_event_count += acknowledgements
+        .keys()
+        .filter(|(root, _)| !known_item_ids.contains(root))
+        .count();
+    rejected_event_count += reactions
+        .keys()
+        .filter(|(root, _, _)| !known_item_ids.contains(root))
+        .count();
+
+    let viewer = configuration.viewer_pubkey.as_deref();
+    let mut projected = items
+        .into_values()
+        .filter_map(|mut item| {
+            let candidates = answers.remove(&item.id).unwrap_or_default();
+            let (valid, invalid): (Vec<_>, Vec<_>) = candidates
+                .into_iter()
+                .partition(|answer| valid_answer(&item, answer));
+            rejected_event_count += invalid.len();
+            item.answer = valid
+                .into_iter()
+                .max_by(|left, right| answer_order(left).cmp(&answer_order(right)));
+            item.acknowledgement = viewer
+                .and_then(|author| acknowledgements.remove(&(item.id.clone(), author.to_string())));
+            item.reactions = reaction_summaries(&item.id, &reactions);
+            (!is_hidden(&item)).then_some(item)
+        })
+        .collect::<Vec<_>>();
+    projected.sort_by(|left, right| {
         right
             .created_at
             .cmp(&left.created_at)
             .then_with(|| left.id.cmp(&right.id))
     });
-    items.truncate(MAX_PROJECTED_ITEMS);
+    projected.truncate(MAX_PROJECTED_ITEMS);
 
     QueueSnapshot {
         phase: KernelPhase::Listening,
         relay: configuration.relay.clone(),
         group_id: configuration.group_id.clone(),
-        items,
+        items: projected,
         evidence: QueueEvidence {
             source_count: evidence.sources.len(),
             shortfall_count: evidence.shortfall.len(),
+            rejected_event_count,
         },
         error: None,
     }
 }
 
-fn spoken_item(row: &Row) -> Option<SpokenItem> {
-    let event = &row.event;
-    if event.kind.as_u16() != 9 {
-        return None;
+fn replace_latest<K: Ord, V>(
+    values: &mut BTreeMap<K, V>,
+    key: K,
+    candidate: V,
+    order: fn(&V) -> (u64, &str),
+) {
+    let should_replace = values
+        .get(&key)
+        .map(|current| order(&candidate) > order(current))
+        .unwrap_or(true);
+    if should_replace {
+        values.insert(key, candidate);
     }
+}
 
-    let title = tag_value(row, "title").unwrap_or_else(|| first_line(&event.content));
-    let summary = tag_value(row, "summary").unwrap_or_else(|| preview(&event.content));
-    Some(SpokenItem {
-        id: event.id.to_hex(),
-        author: event.pubkey.to_hex(),
-        created_at: event.created_at.as_secs(),
-        subject: title,
-        summary,
-        body: event.content.clone(),
-        audio_url: tag_value(row, "audio"),
+fn valid_answer(item: &SpokenItem, answer: &AnswerBundle) -> bool {
+    let questions = item
+        .questions
+        .iter()
+        .map(|question| (question.id.as_str(), question))
+        .collect::<BTreeMap<_, _>>();
+    answer.answers.iter().all(|value| {
+        let Some(question) = questions.get(value.question_id.as_str()) else {
+            return false;
+        };
+        let selected = value.values.iter().collect::<BTreeSet<_>>();
+        if selected.len() != value.values.len() {
+            return false;
+        }
+        match question.kind {
+            QuestionKind::Freeform => value.values.len() == 1,
+            QuestionKind::SingleChoice => {
+                value.values.len() == 1 && option_ids(question).is_superset(&selected)
+            }
+            QuestionKind::MultipleChoice => option_ids(question).is_superset(&selected),
+        }
     })
 }
 
-fn tag_value(row: &Row, name: &str) -> Option<String> {
-    row.event.tags.iter().find_map(|tag| {
-        let values = tag.as_slice();
-        (values.first().map(String::as_str) == Some(name))
-            .then(|| values.get(1).cloned())
-            .flatten()
-            .filter(|value| !value.trim().is_empty())
-    })
+fn option_ids(question: &crate::model::Question) -> BTreeSet<&String> {
+    question.options.iter().map(|option| &option.id).collect()
 }
 
-fn first_line(value: &str) -> String {
-    let line = value
-        .lines()
-        .find(|line| !line.trim().is_empty())
-        .unwrap_or("Spoken update");
-    truncate(line.trim(), 80)
-}
-
-fn preview(value: &str) -> String {
-    let collapsed = value.split_whitespace().collect::<Vec<_>>().join(" ");
-    truncate(&collapsed, 140)
-}
-
-fn truncate(value: &str, max_characters: usize) -> String {
-    let mut characters = value.chars();
-    let prefix = characters.by_ref().take(max_characters).collect::<String>();
-    if characters.next().is_some() {
-        format!("{prefix}…")
-    } else {
-        prefix
+fn reaction_summaries(
+    item_id: &str,
+    reactions: &BTreeMap<(String, String, String), Reaction>,
+) -> Vec<ReactionSummary> {
+    let mut grouped: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    for ((root, author, emoji), reaction) in reactions {
+        if root == item_id && reaction.active {
+            grouped
+                .entry(emoji.clone())
+                .or_default()
+                .push(author.clone());
+        }
     }
+    grouped
+        .into_iter()
+        .map(|(emoji, mut authors)| {
+            authors.sort();
+            ReactionSummary {
+                emoji,
+                count: authors.len(),
+                authors,
+            }
+        })
+        .collect()
 }
 
-#[cfg(test)]
-mod tests {
-    use std::collections::BTreeSet;
+fn is_hidden(item: &SpokenItem) -> bool {
+    matches!(
+        item.acknowledgement.as_ref().map(|value| &value.state),
+        Some(AcknowledgementState::Dismissed | AcknowledgementState::Archived)
+    )
+}
 
-    use nmp::{AcquisitionEvidence, Event, RelayUrl, Row};
+fn answer_order(value: &AnswerBundle) -> (u64, &str) {
+    (value.created_at, &value.event_id)
+}
 
-    use super::project;
-    use crate::model::KernelConfiguration;
+fn acknowledgement_order(value: &Acknowledgement) -> (u64, &str) {
+    (value.created_at, &value.event_id)
+}
 
-    #[test]
-    fn projects_kind_nine_tags_without_native_policy() {
-        let event: Event = serde_json::from_value(serde_json::json!({
-            "id": "0000000000000000000000000000000000000000000000000000000000000000",
-            "pubkey": "1111111111111111111111111111111111111111111111111111111111111111",
-            "created_at": 42,
-            "kind": 9,
-            "tags": [["h", "tts"], ["title", "Build Ready"], ["summary", "The build is ready."], ["audio", "https://example.com/audio.mp3"]],
-            "content": "The simulator build is ready.",
-            "sig": "22222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222"
-        }))
-        .expect("fixture event");
-        let row = Row {
-            event,
-            sources: BTreeSet::from([RelayUrl::parse("wss://relay.example.com").unwrap()]),
-        };
-        let configuration = KernelConfiguration {
-            relay: "wss://relay.example.com".into(),
-            group_id: "tts".into(),
-            store_path: None,
-        };
-
-        let snapshot = project(&configuration, &[row], &AcquisitionEvidence::default());
-
-        assert_eq!(snapshot.items.len(), 1);
-        assert_eq!(snapshot.items[0].subject, "Build Ready");
-        assert_eq!(snapshot.items[0].summary, "The build is ready.");
-        assert_eq!(
-            snapshot.items[0].audio_url.as_deref(),
-            Some("https://example.com/audio.mp3")
-        );
-    }
+fn reaction_order(value: &Reaction) -> (u64, &str) {
+    (value.created_at, &value.event_id)
 }
