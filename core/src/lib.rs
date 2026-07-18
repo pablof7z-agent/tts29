@@ -1,6 +1,5 @@
 mod model;
 mod projection;
-mod protocol;
 mod runtime;
 
 #[cfg(test)]

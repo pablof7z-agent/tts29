@@ -3,8 +3,9 @@ use std::collections::BTreeSet;
 use nmp::{AcquisitionEvidence, Event, RelayUrl, Row};
 use serde_json::json;
 
-use crate::model::{AcknowledgementState, KernelConfiguration};
+use crate::model::KernelConfiguration;
 use crate::projection::project;
+use tts29_protocol::AcknowledgementState;
 
 const GROUP: &str = "tts";
 const VIEWER: &str = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";

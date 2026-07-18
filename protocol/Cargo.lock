@@ -945,7 +945,6 @@ name = "nmp-nip29"
 version = "0.1.0"
 source = "git+https://github.com/pablof7z/nmp.git?rev=5135a36558786d857958347ce30314e39472d5ce#5135a36558786d857958347ce30314e39472d5ce"
 dependencies = [
- "nmp",
  "nmp-grammar",
  "nmp-nip51",
  "nmp-ownership",
@@ -1813,17 +1812,6 @@ name = "try-lock"
 version = "0.2.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e421abadd41a4225275504ea4d6566923418b7f05506fbc9c0fe86ba7396114b"
-
-[[package]]
-name = "tts29-core"
-version = "0.1.0"
-dependencies = [
- "nmp",
- "nmp-nip29",
- "serde",
- "serde_json",
- "tts29-protocol",
-]
 
 [[package]]
 name = "tts29-protocol"

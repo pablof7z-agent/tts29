@@ -2,11 +2,11 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use nmp::{AcquisitionEvidence, Row};
 
-use crate::model::{
-    Acknowledgement, AcknowledgementState, AnswerBundle, KernelConfiguration, KernelPhase,
-    QuestionKind, QueueEvidence, QueueSnapshot, ReactionSummary, SpokenItem,
+use crate::model::{KernelConfiguration, KernelPhase, QueueEvidence, QueueSnapshot};
+use tts29_protocol::{
+    parse, Acknowledgement, AcknowledgementState, AnswerBundle, ParsedEvent, Question,
+    QuestionKind, Reaction, ReactionSummary, SpokenItem,
 };
-use crate::protocol::{parse, ParsedEvent, Reaction};
 
 const MAX_PROJECTED_ITEMS: usize = 40;
 
@@ -147,7 +147,7 @@ fn valid_answer(item: &SpokenItem, answer: &AnswerBundle) -> bool {
     })
 }
 
-fn option_ids(question: &crate::model::Question) -> BTreeSet<&String> {
+fn option_ids(question: &Question) -> BTreeSet<&String> {
     question.options.iter().map(|option| &option.id).collect()
 }
 

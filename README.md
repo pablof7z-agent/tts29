@@ -45,6 +45,16 @@ Building TTS29 never edits the NMP checkout or repository.
 
 The executable event contract is documented in [docs/protocol.md](docs/protocol.md).
 
+## Product crates
+
+- `protocol`: shared frozen event model, validation, parsing, and NMP NIP-29
+  composition;
+- `core`: app kernel that observes NMP and projects the queue for native shells;
+- `daemon`: durable producer admission and crash-recovery stage runner.
+
+The daemon recovery contract is documented in
+[docs/daemon-recovery.md](docs/daemon-recovery.md).
+
 ## Work tracking
 
 The public roadmap is [GitHub Project TTS29](https://github.com/users/pablof7z-agent/projects/1).
