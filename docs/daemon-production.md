@@ -55,6 +55,17 @@ schemas around NMP. Until the pinned public `nmp-nip29` module exposes those
 operations, a non-member remains a truthful host rejection on the tracked
 receipt rather than an implicit membership mutation.
 
+For a local request carrying `AGENT_NSEC`, the daemon temporarily registers the
+key through `Engine::add_account`. The frozen item author is also the explicit
+NMP per-write identity override, so publication uses that secondary signer
+without changing the daemon's active identity. The request holds the opaque
+NMP registration and removes that exact installation after the attempt. A
+retry supplies the signer again and resumes the author-bound journal record;
+the secret itself is never copied into the record.
+
+The local CLI and Unix-socket contract are documented in
+[local-producer.md](local-producer.md).
+
 ## Bounded answer waits
 
 After a job reaches `published`, a caller may open one explicit answer wait with

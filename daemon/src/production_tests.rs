@@ -1,9 +1,10 @@
 use std::collections::BTreeSet;
 use std::fs;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
-use nmp::{Engine, EngineConfig, ReceiptReattachment, RelayUrl};
+use nmp::{Engine, EngineConfig, ReceiptReattachment, RelayUrl, WriteStatus};
 use sha2::{Digest, Sha256};
 use tempfile::TempDir;
 use tts29_protocol::{DurableArtifact, FrozenSpokenItem};
@@ -15,7 +16,7 @@ use crate::{
     Synthesizer,
 };
 
-const TEST_SECRET: &str = "32f6df73ead850b6e13c0649846b7a1d9646d6a0b50c69361981176e817e70f8";
+static TEST_KEY_ID: AtomicU64 = AtomicU64::new(1);
 
 #[test]
 fn kokoro_commits_one_deterministic_file_and_reuses_it_after_restart() {
@@ -66,7 +67,7 @@ fn blossom_upload_is_signed_by_nmp_and_integrity_checked() {
         body: descriptor.into_bytes(),
     }]);
     let engine = Arc::new(Engine::new(EngineConfig::default()).unwrap());
-    let account = engine.add_account(TEST_SECRET).unwrap();
+    let (account, secret) = add_test_account(&engine);
     engine
         .set_active_account(Some(account.public_key()))
         .unwrap();
@@ -98,14 +99,14 @@ fn blossom_upload_is_signed_by_nmp_and_integrity_checked() {
     assert_eq!(requests[0].headers.get("x-sha-256"), Some(&digest));
     let authorization = requests[0].headers.get("authorization").unwrap();
     assert!(authorization.starts_with("Nostr "));
-    assert!(!authorization.contains(TEST_SECRET));
+    assert!(!authorization.contains(&secret));
     engine.shutdown();
 }
 
 #[test]
 fn nmp_publisher_accepts_only_the_configured_group_and_tracks_the_receipt() {
     let engine = Arc::new(Engine::new(EngineConfig::default()).unwrap());
-    let account = engine.add_account(TEST_SECRET).unwrap();
+    let (account, _) = add_test_account(&engine);
     engine
         .set_active_account(Some(account.public_key()))
         .unwrap();
@@ -126,6 +127,46 @@ fn nmp_publisher_accepts_only_the_configured_group_and_tracks_the_receipt() {
     let mut wrong_group = item;
     wrong_group.group_id = "another-group".into();
     assert!(publisher.accept(&wrong_group).is_err());
+    engine.shutdown();
+}
+
+#[test]
+fn request_identity_signs_one_item_without_replacing_the_active_daemon() {
+    let engine = Arc::new(Engine::new(EngineConfig::default()).unwrap());
+    let (daemon, _) = add_test_account(&engine);
+    let (agent, _) = add_test_account(&engine);
+    let daemon_author = daemon.public_key();
+    let agent_author = agent.public_key();
+    engine.set_active_account(Some(daemon_author)).unwrap();
+    let mut publisher = NmpPublisher::new(
+        Arc::clone(&engine),
+        RelayUrl::parse("wss://relay.example.com").unwrap(),
+        "tts".into(),
+        Duration::from_millis(10),
+    );
+
+    let receipt_id = publisher
+        .accept(&spoken_item(agent_author.to_hex()))
+        .unwrap();
+    let ReceiptReattachment::Attached(_, statuses) =
+        engine.reattach_receipt(nmp::ReceiptId(receipt_id)).unwrap()
+    else {
+        panic!("tracked request receipt must be reattachable")
+    };
+    let signed = (0..16).find_map(
+        |_| match statuses.recv_timeout(Duration::from_millis(250)) {
+            Ok(WriteStatus::Signed(event_id)) => Some(event_id),
+            Ok(_) | Err(std::sync::mpsc::RecvTimeoutError::Timeout) => None,
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => None,
+        },
+    );
+
+    assert!(
+        signed.is_some(),
+        "request identity must sign the frozen item"
+    );
+    assert_eq!(engine.active_account().unwrap(), Some(daemon_author));
+    assert!(engine.remove_account(&agent).unwrap());
     engine.shutdown();
 }
 
@@ -169,5 +210,18 @@ fn spoken_item(author: String) -> FrozenSpokenItem {
         },
         attachments: Vec::new(),
         questions: Vec::new(),
+    }
+}
+
+fn add_test_account(engine: &Engine) -> (nmp::AccountRegistration, String) {
+    loop {
+        let id = TEST_KEY_ID.fetch_add(1, Ordering::Relaxed);
+        let secret = format!(
+            "{:x}",
+            Sha256::digest(format!("tts29-production-test-{}-{id}", std::process::id()))
+        );
+        if let Ok(registration) = engine.add_account(&secret) {
+            return (registration, secret);
+        }
     }
 }

@@ -4,9 +4,10 @@ use std::time::Duration;
 
 use nmp::{Engine, EngineConfig, RelayUrl};
 
+use crate::identity::IdentityRegistry;
 use crate::{
     AnswerWaitCancel, AnswerWaitError, AnswerWaiter, BlossomArtifactUploader, BlossomUploadConfig,
-    FileJobJournal, JobRecord, KokoroConfig, KokoroSynthesizer, NmpPublisher, ProducerError,
+    Clock, FileJobJournal, JobRecord, KokoroConfig, KokoroSynthesizer, NmpPublisher, ProducerError,
     ProducerRequest, ProducerRunner, SystemClock,
 };
 
@@ -28,13 +29,22 @@ pub struct ProductionConfig {
 pub struct ProductionProducer {
     runner: ProductionRunner,
     engine: Arc<Engine>,
+    identities: IdentityRegistry,
     author: String,
     group_id: String,
+    clock: Arc<dyn Clock + Send + Sync>,
     answer_waiter: AnswerWaiter,
 }
 
 impl ProductionProducer {
     pub fn open(config: ProductionConfig) -> Result<Self, String> {
+        Self::open_with_clock(config, Arc::new(SystemClock))
+    }
+
+    pub fn open_with_clock(
+        config: ProductionConfig,
+        clock: Arc<dyn Clock + Send + Sync>,
+    ) -> Result<Self, String> {
         if config.group_id.is_empty() || config.group_id.len() > 128 {
             return Err("configured group id is invalid".into());
         }
@@ -60,13 +70,13 @@ impl ProductionProducer {
             Arc::clone(&engine),
             author_key,
             config.blossom,
-            Arc::new(SystemClock),
+            Arc::clone(&clock),
         )?;
         let answer_waiter = AnswerWaiter::new(
             Arc::clone(&engine),
             host.clone(),
             config.group_id.clone(),
-            Arc::new(SystemClock),
+            Arc::clone(&clock),
         );
         let publisher = NmpPublisher::new(
             Arc::clone(&engine),
@@ -81,9 +91,11 @@ impl ProductionProducer {
                 .map_err(|error| error.to_string())?;
         Ok(Self {
             runner,
+            identities: IdentityRegistry::new(Arc::clone(&engine), account),
             engine,
             author: author_key.to_hex(),
             group_id: config.group_id,
+            clock,
             answer_waiter,
         })
     }
@@ -103,6 +115,44 @@ impl ProductionProducer {
         self.runner.admit(request, self.author.clone(), created_at)
     }
 
+    pub fn publish(
+        &mut self,
+        request: ProducerRequest,
+        created_at: u64,
+        agent_secret: Option<&str>,
+    ) -> Result<JobRecord, ProducerError> {
+        if request.group_id != self.group_id {
+            return Err(ProducerError::InvalidRequest("group_id"));
+        }
+        let identity =
+            self.identities
+                .request(agent_secret)
+                .map_err(|reason| ProducerError::Capability {
+                    stage: "request_identity",
+                    reason,
+                })?;
+        let author = identity.author_hex();
+        let result = self.publish_as(request, author, created_at);
+        let cleanup = identity
+            .close()
+            .map_err(|reason| ProducerError::Capability {
+                stage: "request_identity_cleanup",
+                reason,
+            });
+        match (result, cleanup) {
+            (_, Err(error)) => Err(error),
+            (result, Ok(())) => result,
+        }
+    }
+
+    pub fn publish_now(
+        &mut self,
+        request: ProducerRequest,
+        agent_secret: Option<&str>,
+    ) -> Result<JobRecord, ProducerError> {
+        self.publish(request, self.clock.unix_millis() / 1_000, agent_secret)
+    }
+
     pub fn advance(&mut self, request_id: &str) -> Result<JobRecord, ProducerError> {
         self.runner.advance(request_id)
     }
@@ -117,6 +167,35 @@ impl ProductionProducer {
     }
 
     pub fn shutdown(&self) {
+        self.engine.shutdown();
+    }
+
+    fn publish_as(
+        &mut self,
+        request: ProducerRequest,
+        author: String,
+        created_at: u64,
+    ) -> Result<JobRecord, ProducerError> {
+        let request_id = request.request_id.clone();
+        let mut job = self.runner.admit(request, author, created_at)?;
+        for _ in 0..4 {
+            if job.phase.is_published() {
+                return Ok(job);
+            }
+            job = self.runner.advance(&request_id)?;
+        }
+        job.phase
+            .is_published()
+            .then_some(job)
+            .ok_or_else(|| ProducerError::Capability {
+                stage: "publication",
+                reason: "producer exceeded its bounded stage count".into(),
+            })
+    }
+}
+
+impl Drop for ProductionProducer {
+    fn drop(&mut self) {
         self.engine.shutdown();
     }
 }

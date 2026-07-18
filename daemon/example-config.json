@@ -1,0 +1,20 @@
+{
+  "socket_path": "state/runtime/daemon.sock",
+  "journal_root": "state/jobs",
+  "work_root": "state/work",
+  "nmp_store_path": "state/nmp",
+  "host": "wss://nip29.f7z.io",
+  "group_id": "tts",
+  "kokoro": {
+    "endpoint": "https://kokoro.example.com/v1/audio/speech",
+    "request_timeout_seconds": 120,
+    "max_audio_bytes": 52428800
+  },
+  "blossom": {
+    "server": "https://blossom.example.com",
+    "request_timeout_seconds": 60,
+    "authorization_lifetime_seconds": 300,
+    "max_upload_bytes": 52428800
+  },
+  "receipt_timeout_seconds": 30
+}
