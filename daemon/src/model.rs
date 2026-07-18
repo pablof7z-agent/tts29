@@ -5,6 +5,7 @@ use tts29_protocol::{DurableArtifact, FrozenSpokenItem, Question};
 pub struct ProducerRequest {
     pub request_id: String,
     pub group_id: String,
+    pub voice: String,
     pub agent_name: String,
     pub subject: String,
     pub summary: String,

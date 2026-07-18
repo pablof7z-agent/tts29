@@ -74,6 +74,7 @@ fn request(id: &str) -> ProducerRequest {
     ProducerRequest {
         request_id: id.into(),
         group_id: "tts".into(),
+        voice: "af_heart".into(),
         agent_name: "Codex".into(),
         subject: "Recovery ready".into(),
         summary: "The producer can recover the request.".into(),

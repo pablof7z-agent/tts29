@@ -54,6 +54,8 @@ The executable event contract is documented in [docs/protocol.md](docs/protocol.
 
 The daemon recovery contract is documented in
 [docs/daemon-recovery.md](docs/daemon-recovery.md).
+Its production Kokoro, Blossom, identity, and group boundary is documented in
+[docs/daemon-production.md](docs/daemon-production.md).
 
 ## Work tracking
 
