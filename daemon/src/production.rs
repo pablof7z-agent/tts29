@@ -82,6 +82,7 @@ impl ProductionProducer {
             Arc::clone(&engine),
             host,
             config.group_id.clone(),
+            author_key,
             config.receipt_timeout,
         );
         let journal =
@@ -178,7 +179,7 @@ impl ProductionProducer {
     ) -> Result<JobRecord, ProducerError> {
         let request_id = request.request_id.clone();
         let mut job = self.runner.admit(request, author, created_at)?;
-        for _ in 0..4 {
+        for _ in 0..6 {
             if job.phase.is_published() {
                 return Ok(job);
             }

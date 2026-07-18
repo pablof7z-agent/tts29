@@ -1,15 +1,24 @@
+use std::collections::BTreeMap;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
-use nmp::{Engine, ReceiptId, ReceiptReattachment, RelayUrl, WriteStatus};
-use tts29_protocol::{compose_spoken_item, FrozenSpokenItem};
+use nmp::{
+    CorrelationToken, Engine, LiveQuery, PublicKey, ReceiptId, ReceiptReattachment, RelayUrl,
+    RowDelta, SourceStatus, WriteStatus,
+};
+use sha2::{Digest, Sha256};
+use tts29_protocol::{
+    compose_membership_upsert, compose_spoken_item, event_authorizes_member,
+    group_membership_demand, FrozenSpokenItem,
+};
 
-use crate::Publisher;
+use crate::{AuthorizationStep, Publisher};
 
 pub struct NmpPublisher {
     engine: Arc<Engine>,
     host: RelayUrl,
     group_id: String,
+    admin_author: PublicKey,
     receipt_timeout: Duration,
 }
 
@@ -18,12 +27,14 @@ impl NmpPublisher {
         engine: Arc<Engine>,
         host: RelayUrl,
         group_id: String,
+        admin_author: PublicKey,
         receipt_timeout: Duration,
     ) -> Self {
         Self {
             engine,
             host,
             group_id,
+            admin_author,
             receipt_timeout,
         }
     }
@@ -34,6 +45,54 @@ impl NmpPublisher {
 }
 
 impl Publisher for NmpPublisher {
+    fn authorize(
+        &mut self,
+        request_id: &str,
+        author: &str,
+        created_at: u64,
+    ) -> Result<AuthorizationStep, String> {
+        let member = PublicKey::parse(author)
+            .map_err(|_| "frozen spoken-item author is not a public key".to_string())?;
+        if let Some(event_id) = self.current_membership(&member)? {
+            return Ok(AuthorizationStep::Authorized { event_id });
+        }
+
+        let digest = format!(
+            "{:x}",
+            Sha256::digest(
+                [
+                    b"tts29-membership-v1\0".as_slice(),
+                    request_id.as_bytes(),
+                    b"\0",
+                    author.as_bytes()
+                ]
+                .concat(),
+            )
+        );
+        let correlation = CorrelationToken::try_from(digest.as_str())
+            .map_err(|error| format!("membership correlation was refused: {error}"))?;
+        let intent = compose_membership_upsert(
+            self.host.clone(),
+            &self.group_id,
+            &self.admin_author.to_hex(),
+            author,
+            created_at,
+            correlation,
+        )
+        .map_err(|error| error.to_string())?;
+        let receipt = self
+            .engine
+            .publish_tracked(intent)
+            .map_err(|error| error.to_string())?;
+        Ok(AuthorizationStep::Accepted {
+            receipt_id: receipt.id.0,
+        })
+    }
+
+    fn resume_authorization(&mut self, receipt_id: u64, _author: &str) -> Result<String, String> {
+        self.await_host_ack(receipt_id)
+    }
+
     fn accept(&mut self, item: &FrozenSpokenItem) -> Result<u64, String> {
         if item.group_id != self.group_id {
             return Err("spoken item group does not match the configured producer group".into());
@@ -48,6 +107,75 @@ impl Publisher for NmpPublisher {
     }
 
     fn resume(&mut self, receipt_id: u64, _item: &FrozenSpokenItem) -> Result<String, String> {
+        self.await_host_ack(receipt_id)
+    }
+}
+
+impl NmpPublisher {
+    fn current_membership(&self, member: &PublicKey) -> Result<Option<String>, String> {
+        let demand = group_membership_demand(self.host.clone(), &self.group_id)
+            .map_err(|error| error.to_string())?;
+        let subscription = self
+            .engine
+            .observe(LiveQuery(demand), None)
+            .map_err(|error| error.to_string())?;
+        let deadline = Instant::now() + self.receipt_timeout;
+        let mut last_evidence = "no frame received".to_string();
+        let mut current = BTreeMap::new();
+        loop {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                return Err(format!(
+                    "NMP membership observation did not reconcile in time ({last_evidence})"
+                ));
+            }
+            let frame = subscription.recv_timeout(remaining).map_err(|_| {
+                format!("NMP membership observation did not reconcile in time ({last_evidence})")
+            })?;
+            for delta in &frame.deltas {
+                match delta {
+                    RowDelta::Added(row) => {
+                        if !current.contains_key(&row.event.id) && current.len() >= 4 {
+                            return Err(
+                                "NMP returned an invalid number of current membership states"
+                                    .into(),
+                            );
+                        }
+                        current.insert(row.event.id, row.event.clone());
+                    }
+                    RowDelta::Removed(id) => {
+                        current.remove(id);
+                    }
+                    RowDelta::SourcesGrew { .. } => {}
+                }
+            }
+            last_evidence = format!("{:?}", frame.evidence);
+            let source = frame
+                .evidence
+                .sources
+                .iter()
+                .find(|source| source.relay == self.host);
+            if source.is_some_and(|source| {
+                matches!(
+                    source.status,
+                    SourceStatus::AuthDenied | SourceStatus::Error
+                )
+            }) {
+                return Err("NMP membership observation was refused by the selected host".into());
+            }
+            let reconciled = source.is_some_and(|source| {
+                source.status == SourceStatus::Requesting && source.reconciled_through.is_some()
+            });
+            if !reconciled {
+                continue;
+            }
+            return Ok(current.values().find_map(|event| {
+                event_authorizes_member(event, &self.group_id, member).then(|| event.id.to_hex())
+            }));
+        }
+    }
+
+    fn await_host_ack(&self, receipt_id: u64) -> Result<String, String> {
         let statuses = match self
             .engine
             .reattach_receipt(ReceiptId(receipt_id))
@@ -66,10 +194,12 @@ impl Publisher for NmpPublisher {
 
         let mut event_id = None;
         let mut host_acked = false;
+        let mut last_status = "no status received".to_string();
         for _ in 0..32 {
-            let status = statuses
-                .recv_timeout(self.receipt_timeout)
-                .map_err(|_| format!("NMP receipt {receipt_id} is still pending"))?;
+            let status = statuses.recv_timeout(self.receipt_timeout).map_err(|_| {
+                format!("NMP receipt {receipt_id} is still pending ({last_status})")
+            })?;
+            last_status = format!("{status:?}");
             match status {
                 WriteStatus::Signed(id) => event_id = Some(id.to_hex()),
                 WriteStatus::Acked(relay) if relay == self.host => host_acked = true,
@@ -114,6 +244,7 @@ mod tests {
             Arc::new(engine),
             RelayUrl::parse("wss://relay.example.com").unwrap(),
             "tts".into(),
+            PublicKey::parse(&"1".repeat(64)).unwrap(),
             Duration::from_millis(10),
         );
 

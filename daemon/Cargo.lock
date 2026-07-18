@@ -2033,6 +2033,7 @@ dependencies = [
  "tokio",
  "tts29-producer-api",
  "tts29-protocol",
+ "tungstenite",
 ]
 
 [[package]]

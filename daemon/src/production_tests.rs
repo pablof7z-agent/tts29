@@ -114,6 +114,7 @@ fn nmp_publisher_accepts_only_the_configured_group_and_tracks_the_receipt() {
         Arc::clone(&engine),
         RelayUrl::parse("wss://relay.example.com").unwrap(),
         "tts".into(),
+        account.public_key(),
         Duration::from_millis(10),
     );
     let item = spoken_item(account.public_key().to_hex());
@@ -142,6 +143,7 @@ fn request_identity_signs_one_item_without_replacing_the_active_daemon() {
         Arc::clone(&engine),
         RelayUrl::parse("wss://relay.example.com").unwrap(),
         "tts".into(),
+        daemon_author,
         Duration::from_millis(10),
     );
 

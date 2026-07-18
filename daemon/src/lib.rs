@@ -10,6 +10,7 @@ mod local_service;
 mod model;
 mod nmp_publisher;
 mod production;
+mod request;
 mod runner;
 
 pub use answer_wait::{AnswerWaitCancel, AnswerWaitError, AnswerWaiter};
@@ -22,10 +23,12 @@ pub use local_server::{
     serve_forever, serve_one, serve_until_shutdown, LocalServerShutdown, PrivateUnixListener,
 };
 pub use local_service::LocalPublishService;
-pub use model::{JobPhase, JobRecord, LocalAudioArtifact};
+pub use model::{JobPhase, JobRecord, LocalAudioArtifact, MembershipEvidence};
 pub use nmp_publisher::NmpPublisher;
 pub use production::{ProductionConfig, ProductionProducer};
-pub use runner::{ArtifactUploader, ProducerError, ProducerRunner, Publisher, Synthesizer};
+pub use runner::{
+    ArtifactUploader, AuthorizationStep, ProducerError, ProducerRunner, Publisher, Synthesizer,
+};
 #[cfg(unix)]
 pub use tts29_producer_api::{submit_local, submit_local_with_timeout};
 pub use tts29_producer_api::{
@@ -41,5 +44,9 @@ mod local_server_tests;
 mod production_tests;
 #[cfg(test)]
 mod test_http;
+#[cfg(test)]
+mod test_nmp_relay;
+#[cfg(test)]
+mod test_publisher;
 #[cfg(test)]
 mod tests;

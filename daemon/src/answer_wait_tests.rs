@@ -105,6 +105,7 @@ fn published_job() -> JobRecord {
         request,
         phase: JobPhase::Published {
             item,
+            membership: None,
             receipt_id: 1,
             event_id: hex(1, 64),
         },
