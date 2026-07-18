@@ -14,6 +14,24 @@ public struct SpokenItem: Codable, Identifiable, Sendable {
         case createdAt = "created_at"
         case audioURL = "audio_url"
     }
+
+    public init(
+        id: String,
+        author: String,
+        createdAt: UInt64,
+        subject: String,
+        summary: String,
+        body: String,
+        audioURL: String?
+    ) {
+        self.id = id
+        self.author = author
+        self.createdAt = createdAt
+        self.subject = subject
+        self.summary = summary
+        self.body = body
+        self.audioURL = audioURL
+    }
 }
 
 public enum KernelPhase: String, Codable, Sendable {
@@ -39,6 +57,11 @@ public struct QueueEvidence: Codable, Sendable {
     enum CodingKeys: String, CodingKey {
         case sourceCount = "source_count"
         case shortfallCount = "shortfall_count"
+    }
+
+    public init(sourceCount: Int, shortfallCount: Int) {
+        self.sourceCount = sourceCount
+        self.shortfallCount = shortfallCount
     }
 }
 
