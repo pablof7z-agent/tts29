@@ -94,6 +94,24 @@ Standalone release ownership and signing prerequisites are documented in
 [docs/releases.md](docs/releases.md), with a non-secret delivery record in
 [docs/release-evidence.md](docs/release-evidence.md).
 
+## Real-relay verification
+
+Issue-focused live verification creates a unique disposable group, drives the
+real daemon through its private socket, requires host ACKs, reacquires the
+exact item and answer through fresh NMP engines, and verifies the uploaded
+audio by hash. Supply a non-sensitive MP3 when the configured Kokoro service
+is not available through HTTPS or literal loopback:
+
+```bash
+TTS29_LIVE_AUDIO_FILE=/path/to/disposable.mp3 \
+  scripts/run-live-relay-e2e.sh
+```
+
+The runner reads the daemon identity only from `TTS29_DAEMON_NSEC` or
+`AGENT_NSEC`, emits public JSON evidence, bounds every network wait, and removes
+its private local state and loopback synthesis fixture on exit. The recorded
+real run is in [docs/live-relay-verification.md](docs/live-relay-verification.md).
+
 ## Work tracking
 
 The public roadmap is [GitHub Project TTS29](https://github.com/users/pablof7z-agent/projects/1).

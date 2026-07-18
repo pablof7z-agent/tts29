@@ -5,6 +5,10 @@ mod identity;
 mod journal;
 mod kokoro;
 #[cfg(unix)]
+mod live_network;
+#[cfg(unix)]
+mod live_smoke;
+#[cfg(unix)]
 mod local_server;
 mod local_service;
 mod model;
@@ -18,6 +22,8 @@ pub use blossom::{BlossomArtifactUploader, BlossomUploadConfig, Clock, SystemClo
 pub use daemon_config::{load_daemon_config, LoadedDaemonConfig};
 pub use journal::{FileJobJournal, InsertOutcome, JobJournal, JournalError};
 pub use kokoro::{KokoroAuth, KokoroConfig, KokoroSynthesizer};
+#[cfg(unix)]
+pub use live_smoke::{run_live_relay_smoke, LiveRelayEvidence};
 #[cfg(unix)]
 pub use local_server::{
     serve_forever, serve_one, serve_until_shutdown, LocalServerShutdown, PrivateUnixListener,
