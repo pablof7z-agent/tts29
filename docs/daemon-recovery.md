@@ -26,8 +26,10 @@ the previous complete stage or the next complete stage, never partial JSON.
 | `admitted` | Request digest, author, event time | Synthesize at the deterministic job path |
 | `synthesized` | Path, digest, media type, byte count | Reuse verified bytes and upload by digest |
 | `artifacts_durable` | Exact frozen protocol item | Submit the identical NMP write intent |
+| `authorization_accepted` | Frozen item and NMP membership receipt ID | Reattach to the membership receipt through NMP |
+| `author_authorized` | Membership event ID and optional receipt ID | Submit the frozen spoken item |
 | `publication_accepted` | Frozen item and NMP receipt ID | Reattach to the receipt through NMP |
-| `published` | Receipt ID and event ID | Return existing publication evidence |
+| `published` | Membership evidence, publication receipt ID, and event ID | Return existing publication evidence |
 
 The runner hashes the synthesized file itself and rejects claimed metadata that
 does not match its bytes. Durable audio metadata must retain that digest, media
@@ -38,10 +40,10 @@ before publication.
 
 NMP durably accepts a write before the daemon can durably record its receipt
 ID; these are separate stores and cannot share an atomic transaction. The
-daemon closes the user-visible duplication gap by freezing author, timestamp,
-content, group, and every tag before acceptance. Retrying that exact item
-computes the same Nostr event ID. It may create another receipt obligation, but
-it cannot create a second spoken item identity.
+membership write carries a stable request/member correlation token, so retrying
+after that gap reattaches the same NMP obligation. The spoken write freezes
+author, timestamp, content, group, and every tag before acceptance, so retrying
+computes the same Nostr event ID.
 
 Once the receipt ID is journaled, recovery uses NMP receipt reattachment rather
 than submitting again. Only an acknowledged signed event advances the job to
@@ -53,6 +55,8 @@ Tests discard the journal update once at every stage boundary. Recovery proves:
 
 - synthesis may be invoked again but reuses one deterministic local file;
 - upload may be invoked again but addresses one digest;
+- membership observation or acceptance may run again but converges on one
+  authorization event and retained obligation;
 - lost acceptance evidence may allocate another receipt but yields one event
   ID;
 - lost terminal evidence reattaches the saved receipt;

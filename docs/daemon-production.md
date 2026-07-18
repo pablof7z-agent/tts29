@@ -49,11 +49,19 @@ The same NMP engine owns the active account and tracked NIP-29 publication.
 freezes the complete item before acceptance, journals the receipt ID, and then
 reattaches that receipt until the configured host acknowledges the signed event.
 
-The configured producer identity must already be authorized by the selected
-group host. TTS29 does not hand-roll NIP-29 membership or administration event
-schemas around NMP. Until the pinned public `nmp-nip29` module exposes those
-operations, a non-member remains a truthful host rejection on the tracked
-receipt rather than an implicit membership mutation.
+Before publication, the daemon observes current kind `39001` and `39002` group
+state through a strict NMP demand pinned to the selected host. The read must
+carry reconciled source evidence. If the frozen spoken-item author is absent,
+the daemon composes kind `9000` through the public, kind-agnostic
+`nmp-nip29` group composer. NMP owns the `h` tag, exact-host route, daemon
+signing, durable acceptance, stable correlation, receipt stream, retry, and
+rejection. TTS29 never opens a parallel Nostr client or modifies NMP.
+
+Membership acceptance and authorization are separate journal stages. The
+membership event ID and optional retained receipt ID remain in the final
+published job. A retry after the NMP acceptance gap uses a stable correlation
+derived from the request ID and member pubkey, so it reattaches the same NMP
+obligation rather than creating untracked administrative work.
 
 For a local request carrying `AGENT_NSEC`, the daemon temporarily registers the
 key through `Engine::add_account`. The frozen item author is also the explicit
@@ -80,7 +88,8 @@ timeout, engine closure, and a valid answer remain distinct results. The NMP
 subscription is withdrawn when the operation ends, and the daemon records no
 playback or item-ownership state.
 
-Integration tests run real HTTP boundaries on explicitly admitted loopback
-servers and exercise NMP signing, Blossom integrity validation, tracked receipt
-acceptance, bounded answer observation, group refusal, and Kokoro restart reuse
+Integration tests run real HTTP and WebSocket boundaries on explicitly admitted
+loopback servers and exercise NMP membership observation and repair, existing
+membership, host rejection, request signing, Blossom integrity validation,
+tracked receipt acceptance, bounded answer observation, and Kokoro restart reuse
 without modifying NMP.

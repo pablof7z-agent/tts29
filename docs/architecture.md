@@ -8,6 +8,7 @@
 | Spoken-item interpretation, queue ordering, bounded screen projection | TTS29 Rust kernel |
 | Navigation state and product actions | TTS29 Rust kernel |
 | SwiftUI rendering and accessibility | Apple shell |
+| Raw device-local relay/group bootstrap preferences | Apple storage capability |
 | Audio session and playback execution | Apple capability bridge |
 | Current device position, pause state, autoplay barrier | Device-local state |
 
@@ -15,6 +16,12 @@ The app does not create a second event cache. It receives NMP rows through one
 windowed observation and emits a bounded screen-shaped projection. The NMP
 subscription is cancelled through its public cancellation handle; the owning
 thread then shuts down the engine deterministically.
+
+The Apple shell may persist the two raw values a user enters for the next
+launch. They are bootstrap capability input, not a mirror of queue or Nostr
+state. Swift does not interpret the values or use them to contact a relay; the
+Rust kernel parses them, starts NMP, and reports invalid configuration through
+the bounded lifecycle snapshot.
 
 ## First slice data flow
 
@@ -61,3 +68,8 @@ does not transport Rust `Result` values, throw native exceptions, or expose an
 error object. Runtime failures are serialized into `QueueSnapshot` state;
 invalid startup input is represented by a null handle and immediately mapped
 to failed snapshot state by Swift.
+
+The scanner also reports `D4/native-cache-smell` for the `UserDefaults` calls
+in `ConnectionSettings.swift`. Those keys are the source of raw device-local
+bootstrap input for the next kernel launch. They do not cache or mirror any
+Rust-owned projection, event, routing decision, or protocol fact.

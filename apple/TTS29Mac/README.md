@@ -23,3 +23,5 @@ xcodebuildmcp macos build-and-run \
 The app sandbox permits outgoing network access for the NMP relay and durable
 audio URLs. Shared controller tests verify local playback lifecycle behavior;
 `build-and-run` verifies that the AVPlayer-linked native app launches on macOS.
+Standalone version and signing ownership is documented in
+[../../docs/releases.md](../../docs/releases.md).
