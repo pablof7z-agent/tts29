@@ -2,6 +2,8 @@
 .build/
 DerivedData/
 core/target/
+protocol/target/
+daemon/target/
 apple/.swiftpm/
 apple/TTS29Package/.build/
 *.xcresult

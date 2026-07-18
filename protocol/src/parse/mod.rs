@@ -1,4 +1,4 @@
-mod tags;
+pub(crate) mod tags;
 
 use std::collections::BTreeSet;
 
