@@ -19,3 +19,4 @@ tts29-protocol = { path = "../protocol" }
 
 [dev-dependencies]
 tempfile = "3"
+tungstenite = "0.29"

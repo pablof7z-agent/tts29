@@ -1,14 +1,15 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 
 use sha2::{Digest, Sha256};
 use tempfile::TempDir;
-use tts29_protocol::{DurableArtifact, FrozenSpokenItem};
+use tts29_protocol::DurableArtifact;
 
+use crate::test_publisher::FakePublisher;
 use crate::{
     ArtifactUploader, FileJobJournal, InsertOutcome, JobJournal, JobRecord, JournalError,
-    LocalAudioArtifact, ProducerError, ProducerRequest, ProducerRunner, Publisher, Synthesizer,
+    LocalAudioArtifact, ProducerError, ProducerRequest, ProducerRunner, Synthesizer,
 };
 
 #[test]
@@ -34,26 +35,99 @@ fn every_lost_stage_commit_recovers_without_duplicate_artifacts_or_events() {
     let journal = FaultJournal::new([
         "synthesized",
         "artifacts_durable",
+        "authorization_accepted",
+        "author_authorized",
         "publication_accepted",
         "published",
     ]);
     let mut runner = runner(journal, temporary.path().join("work"));
     runner.admit(request("recover"), author(), 123).unwrap();
 
-    for _ in 0..12 {
+    for _ in 0..16 {
         let _ = runner.advance("recover");
     }
     let (mut journal, synthesizer, uploader, publisher) = runner.into_parts();
     let job = journal.load("recover").unwrap().unwrap();
 
     assert!(job.phase.is_published());
+    let crate::JobPhase::Published {
+        membership: Some(membership),
+        ..
+    } = &job.phase
+    else {
+        panic!("published jobs must retain membership evidence")
+    };
+    assert_eq!(membership.receipt_id, Some(7));
+    assert!(publisher
+        .membership_event_ids
+        .contains(&membership.event_id));
     assert_eq!(synthesizer.calls, 2);
     assert_eq!(synthesizer.generated_paths.len(), 1);
     assert_eq!(uploader.calls, 2);
     assert_eq!(uploader.blobs.len(), 1);
+    assert_eq!(publisher.authorize_calls, 2);
+    assert_eq!(publisher.authorization_resume_calls, 2);
+    assert_eq!(publisher.membership_event_ids.len(), 1);
     assert_eq!(publisher.accept_calls, 2);
     assert_eq!(publisher.resume_calls, 2);
     assert_eq!(publisher.event_ids.len(), 1);
+}
+
+#[test]
+fn existing_membership_skips_the_admin_write() {
+    let temporary = TempDir::new().unwrap();
+    let journal = FileJobJournal::open(temporary.path().join("jobs")).unwrap();
+    let mut publisher = FakePublisher::default();
+    publisher.already_authorized = true;
+    let mut runner = ProducerRunner::new(
+        journal,
+        FakeSynthesizer::default(),
+        FakeUploader::default(),
+        publisher,
+        temporary.path().join("work"),
+    )
+    .unwrap();
+    runner.admit(request("member"), author(), 123).unwrap();
+
+    for _ in 0..5 {
+        runner.advance("member").unwrap();
+    }
+    let (_, _, _, publisher) = runner.into_parts();
+
+    assert_eq!(publisher.authorize_calls, 1);
+    assert_eq!(publisher.authorization_resume_calls, 0);
+    assert_eq!(publisher.accept_calls, 1);
+}
+
+#[test]
+fn membership_rejection_prevents_spoken_publication() {
+    let temporary = TempDir::new().unwrap();
+    let journal = FileJobJournal::open(temporary.path().join("jobs")).unwrap();
+    let mut publisher = FakePublisher::default();
+    publisher.reject_authorization = true;
+    let mut runner = ProducerRunner::new(
+        journal,
+        FakeSynthesizer::default(),
+        FakeUploader::default(),
+        publisher,
+        temporary.path().join("work"),
+    )
+    .unwrap();
+    runner.admit(request("rejected"), author(), 123).unwrap();
+    runner.advance("rejected").unwrap();
+    runner.advance("rejected").unwrap();
+
+    let error = runner.advance("rejected").unwrap_err();
+    let (_, _, _, publisher) = runner.into_parts();
+
+    assert!(matches!(
+        error,
+        ProducerError::Capability {
+            stage: "membership_authorization",
+            ..
+        }
+    ));
+    assert_eq!(publisher.accept_calls, 0);
 }
 
 fn runner<J: JobJournal>(
@@ -131,36 +205,6 @@ impl ArtifactUploader for FakeUploader {
             byte_count: audio.byte_count,
             label: None,
         })
-    }
-}
-
-#[derive(Default)]
-struct FakePublisher {
-    accept_calls: usize,
-    resume_calls: usize,
-    event_ids: BTreeSet<String>,
-    receipts: BTreeMap<u64, String>,
-}
-
-impl Publisher for FakePublisher {
-    fn accept(&mut self, item: &FrozenSpokenItem) -> Result<u64, String> {
-        self.accept_calls += 1;
-        let event_id = format!(
-            "{:x}",
-            Sha256::digest(serde_json::to_vec(item).map_err(|error| error.to_string())?)
-        );
-        self.event_ids.insert(event_id.clone());
-        let receipt_id = self.accept_calls as u64;
-        self.receipts.insert(receipt_id, event_id);
-        Ok(receipt_id)
-    }
-
-    fn resume(&mut self, receipt_id: u64, _item: &FrozenSpokenItem) -> Result<String, String> {
-        self.resume_calls += 1;
-        self.receipts
-            .get(&receipt_id)
-            .cloned()
-            .ok_or_else(|| "unknown receipt".into())
     }
 }
 

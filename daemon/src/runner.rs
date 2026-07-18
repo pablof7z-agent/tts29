@@ -1,12 +1,15 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use sha2::{Digest, Sha256};
 use tts29_protocol::{validate_spoken_item, DurableArtifact, FrozenSpokenItem};
 
+use crate::request::{
+    capability, frozen_item, is_event_id, request_digest, same_request, validate_local_audio,
+    validate_request_id,
+};
 use crate::{
     InsertOutcome, JobJournal, JobPhase, JobRecord, JournalError, LocalAudioArtifact,
-    ProducerRequest,
+    MembershipEvidence, ProducerRequest,
 };
 
 pub trait Synthesizer {
@@ -22,8 +25,21 @@ pub trait ArtifactUploader {
 }
 
 pub trait Publisher {
+    fn authorize(
+        &mut self,
+        request_id: &str,
+        author: &str,
+        created_at: u64,
+    ) -> Result<AuthorizationStep, String>;
+    fn resume_authorization(&mut self, receipt_id: u64, author: &str) -> Result<String, String>;
     fn accept(&mut self, item: &FrozenSpokenItem) -> Result<u64, String>;
     fn resume(&mut self, receipt_id: u64, item: &FrozenSpokenItem) -> Result<String, String>;
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum AuthorizationStep {
+    Authorized { event_id: String },
+    Accepted { receipt_id: u64 },
 }
 
 #[derive(Debug)]
@@ -160,16 +176,67 @@ where
                 JobPhase::ArtifactsDurable { item }
             }
             JobPhase::ArtifactsDurable { item } => {
+                match self
+                    .publisher
+                    .authorize(request_id, &item.author, job.created_at)
+                    .map_err(|reason| capability("membership_authorization", reason))?
+                {
+                    AuthorizationStep::Authorized { event_id } => {
+                        if !is_event_id(&event_id) {
+                            return Err(capability(
+                                "membership_authorization",
+                                "publisher returned an invalid membership event id".into(),
+                            ));
+                        }
+                        JobPhase::AuthorAuthorized {
+                            item: item.clone(),
+                            membership: MembershipEvidence {
+                                event_id,
+                                receipt_id: None,
+                            },
+                        }
+                    }
+                    AuthorizationStep::Accepted { receipt_id } => JobPhase::AuthorizationAccepted {
+                        item: item.clone(),
+                        receipt_id,
+                    },
+                }
+            }
+            JobPhase::AuthorizationAccepted { item, receipt_id } => {
+                let membership_event_id = self
+                    .publisher
+                    .resume_authorization(*receipt_id, &item.author)
+                    .map_err(|reason| capability("membership_receipt", reason))?;
+                if !is_event_id(&membership_event_id) {
+                    return Err(capability(
+                        "membership_receipt",
+                        "publisher returned an invalid membership event id".into(),
+                    ));
+                }
+                JobPhase::AuthorAuthorized {
+                    item: item.clone(),
+                    membership: MembershipEvidence {
+                        event_id: membership_event_id,
+                        receipt_id: Some(*receipt_id),
+                    },
+                }
+            }
+            JobPhase::AuthorAuthorized { item, membership } => {
                 let receipt_id = self
                     .publisher
                     .accept(item)
                     .map_err(|reason| capability("publication_acceptance", reason))?;
                 JobPhase::PublicationAccepted {
                     item: item.clone(),
+                    membership: Some(membership.clone()),
                     receipt_id,
                 }
             }
-            JobPhase::PublicationAccepted { item, receipt_id } => {
+            JobPhase::PublicationAccepted {
+                item,
+                membership,
+                receipt_id,
+            } => {
                 let event_id = self
                     .publisher
                     .resume(*receipt_id, item)
@@ -182,6 +249,7 @@ where
                 }
                 JobPhase::Published {
                     item: item.clone(),
+                    membership: membership.clone(),
                     receipt_id: *receipt_id,
                     event_id,
                 }
@@ -204,83 +272,4 @@ where
     fn audio_path(&self, request_id: &str) -> PathBuf {
         self.work_root.join(request_id).join("speech.mp3")
     }
-}
-
-fn frozen_item(job: &JobRecord, audio: DurableArtifact) -> FrozenSpokenItem {
-    FrozenSpokenItem {
-        author: job.author.clone(),
-        created_at: job.created_at,
-        group_id: job.request.group_id.clone(),
-        agent_name: job.request.agent_name.clone(),
-        subject: job.request.subject.clone(),
-        summary: job.request.summary.clone(),
-        body: job.request.body.clone(),
-        audio,
-        attachments: job.request.attachments.clone(),
-        questions: job.request.questions.clone(),
-    }
-}
-
-fn same_request(
-    existing: JobRecord,
-    digest: &str,
-    author: &str,
-) -> Result<JobRecord, ProducerError> {
-    if existing.request_digest == digest && existing.author == author {
-        Ok(existing)
-    } else {
-        Err(ProducerError::RequestConflict(
-            existing.request.request_id.clone(),
-        ))
-    }
-}
-
-fn validate_request_id(value: &str) -> Result<(), ProducerError> {
-    let valid = !value.is_empty()
-        && value.len() <= 64
-        && value
-            .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'));
-    valid
-        .then_some(())
-        .ok_or(ProducerError::InvalidRequest("request_id"))
-}
-
-fn request_digest(request: &ProducerRequest) -> Result<String, ProducerError> {
-    let bytes =
-        serde_json::to_vec(request).map_err(|_| ProducerError::InvalidRequest("serialization"))?;
-    Ok(format!("{:x}", Sha256::digest(bytes)))
-}
-
-fn validate_local_audio(
-    audio: &LocalAudioArtifact,
-    expected_path: &Path,
-) -> Result<(), ProducerError> {
-    let bytes =
-        fs::read(expected_path).map_err(|error| capability("synthesis", error.to_string()))?;
-    let digest = format!("{:x}", Sha256::digest(&bytes));
-    let valid = Path::new(&audio.path) == expected_path
-        && audio.byte_count > 0
-        && audio.byte_count == bytes.len() as u64
-        && audio.media_type.starts_with("audio/")
-        && is_sha256(&audio.sha256)
-        && audio.sha256 == digest;
-    valid
-        .then_some(())
-        .ok_or(ProducerError::InvalidRequest("synthesized_audio"))
-}
-
-fn is_sha256(value: &str) -> bool {
-    value.len() == 64
-        && value
-            .bytes()
-            .all(|byte| byte.is_ascii_digit() || matches!(byte, b'a'..=b'f'))
-}
-
-fn is_event_id(value: &str) -> bool {
-    is_sha256(value)
-}
-
-fn capability(stage: &'static str, reason: String) -> ProducerError {
-    ProducerError::Capability { stage, reason }
 }

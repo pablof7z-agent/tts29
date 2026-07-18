@@ -11,6 +11,12 @@ pub struct LocalAudioArtifact {
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct MembershipEvidence {
+    pub event_id: String,
+    pub receipt_id: Option<u64>,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(tag = "stage", rename_all = "snake_case")]
 pub enum JobPhase {
     Admitted,
@@ -20,12 +26,24 @@ pub enum JobPhase {
     ArtifactsDurable {
         item: FrozenSpokenItem,
     },
+    AuthorizationAccepted {
+        item: FrozenSpokenItem,
+        receipt_id: u64,
+    },
+    AuthorAuthorized {
+        item: FrozenSpokenItem,
+        membership: MembershipEvidence,
+    },
     PublicationAccepted {
         item: FrozenSpokenItem,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        membership: Option<MembershipEvidence>,
         receipt_id: u64,
     },
     Published {
         item: FrozenSpokenItem,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        membership: Option<MembershipEvidence>,
         receipt_id: u64,
         event_id: String,
     },
@@ -37,6 +55,8 @@ impl JobPhase {
             Self::Admitted => "admitted",
             Self::Synthesized { .. } => "synthesized",
             Self::ArtifactsDurable { .. } => "artifacts_durable",
+            Self::AuthorizationAccepted { .. } => "authorization_accepted",
+            Self::AuthorAuthorized { .. } => "author_authorized",
             Self::PublicationAccepted { .. } => "publication_accepted",
             Self::Published { .. } => "published",
         }
