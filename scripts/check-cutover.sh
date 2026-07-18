@@ -30,4 +30,6 @@ if rg --fixed-strings --quiet "$stale_claim" README.md docs apple; then
   exit 1
 fi
 
+scripts/check-release-readiness.sh --source-only
+
 echo "Standalone cutover metadata is internally consistent."
