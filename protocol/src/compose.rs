@@ -47,7 +47,7 @@ pub fn compose_spoken_item(
 ) -> Result<WriteIntent, ComposeError> {
     validate_spoken_item(item)?;
     let author = PublicKey::parse(&item.author).map_err(|_| ComposeError::InvalidAuthor)?;
-    compose_group_send(
+    let mut intent = compose_group_send(
         host,
         &item.group_id,
         author,
@@ -57,7 +57,9 @@ pub fn compose_spoken_item(
         tags(item),
         &GroupTimelineEvidence::none(),
     )
-    .map_err(|_| ComposeError::InvalidTag)
+    .map_err(|_| ComposeError::InvalidTag)?;
+    intent.identity_override = Some(author);
+    Ok(intent)
 }
 
 pub fn validate_spoken_item(item: &FrozenSpokenItem) -> Result<(), ComposeError> {
@@ -217,6 +219,16 @@ mod tests {
         later.created_at += 1;
         let mut later = unsigned(compose_spoken_item(host(), &later).unwrap()).clone();
         assert_ne!(first.id(), later.id());
+    }
+
+    #[test]
+    fn frozen_author_is_the_explicit_nmp_write_identity() {
+        let item = fixture();
+        let author = PublicKey::parse(&item.author).unwrap();
+
+        let intent = compose_spoken_item(host(), &item).unwrap();
+
+        assert_eq!(intent.identity_override, Some(author));
     }
 
     #[test]

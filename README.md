@@ -7,9 +7,9 @@ spoken items, clients reconstruct the same queue, and each device owns its own
 playback position and autoplay policy. A local database is a reconstructible
 projection, never the authority.
 
-## Current slice
+## Current product slices
 
-The current Apple slice proves the architecture on iOS and macOS:
+The Apple slice proves the architecture on iOS and macOS:
 
 - an app-specific Rust kernel consumes NMP's public Rust facade;
 - NMP owns the pinned group query, canonical event store, relay work, and
@@ -19,6 +19,17 @@ The current Apple slice proves the architecture on iOS and macOS:
 - shared SwiftUI renders that projection without implementing Nostr or product
   policy, while each platform executes playback locally through AVPlayer;
 - lifecycle cancellation withdraws the query and shuts NMP down cleanly.
+
+The producer slice provides a crash-recoverable daemon plus a thin local CLI:
+
+- the daemon owns Kokoro, NMP-backed Blossom upload, tracked NIP-29
+  publication, journals, and bounded answer waits;
+- a private versioned Unix-socket request returns durable receipt and event
+  evidence;
+- `AGENT_NSEC` can authorize one request through NMP's per-write identity
+  override without entering config, journals, logs, or responses; and
+- retrying the same request ID resumes the author-bound job instead of creating
+  another spoken item.
 
 The live development defaults point at the existing public TTS group on
 `wss://nip29.f7z.io`, group `tts`. They are bootstrap defaults, not a claim
@@ -65,6 +76,8 @@ The daemon recovery contract is documented in
 [docs/daemon-recovery.md](docs/daemon-recovery.md).
 Its production Kokoro, Blossom, identity, and group boundary is documented in
 [docs/daemon-production.md](docs/daemon-production.md).
+The local daemon and CLI contract is documented in
+[docs/local-producer.md](docs/local-producer.md).
 
 ## Work tracking
 
