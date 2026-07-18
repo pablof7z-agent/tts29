@@ -1,3 +1,4 @@
+use std::sync::Arc;
 use std::time::Duration;
 
 use nmp::{Engine, ReceiptId, ReceiptReattachment, RelayUrl, WriteStatus};
@@ -6,27 +7,37 @@ use tts29_protocol::{compose_spoken_item, FrozenSpokenItem};
 use crate::Publisher;
 
 pub struct NmpPublisher {
-    engine: Engine,
+    engine: Arc<Engine>,
     host: RelayUrl,
+    group_id: String,
     receipt_timeout: Duration,
 }
 
 impl NmpPublisher {
-    pub fn new(engine: Engine, host: RelayUrl, receipt_timeout: Duration) -> Self {
+    pub fn new(
+        engine: Arc<Engine>,
+        host: RelayUrl,
+        group_id: String,
+        receipt_timeout: Duration,
+    ) -> Self {
         Self {
             engine,
             host,
+            group_id,
             receipt_timeout,
         }
     }
 
-    pub fn into_engine(self) -> Engine {
-        self.engine
+    pub fn engine(&self) -> &Arc<Engine> {
+        &self.engine
     }
 }
 
 impl Publisher for NmpPublisher {
     fn accept(&mut self, item: &FrozenSpokenItem) -> Result<u64, String> {
+        if item.group_id != self.group_id {
+            return Err("spoken item group does not match the configured producer group".into());
+        }
         let intent =
             compose_spoken_item(self.host.clone(), item).map_err(|error| error.to_string())?;
         let receipt = self
@@ -100,8 +111,9 @@ mod tests {
     fn missing_receipt_is_not_republished_or_misreported() {
         let engine = Engine::new(EngineConfig::default()).unwrap();
         let mut publisher = NmpPublisher::new(
-            engine,
+            Arc::new(engine),
             RelayUrl::parse("wss://relay.example.com").unwrap(),
+            "tts".into(),
             Duration::from_millis(10),
         );
 

@@ -7,7 +7,8 @@ spoken item is durably accepted by NMP. It never owns queue playback.
 
 A caller supplies a request ID made from 1–64 ASCII letters, digits, `_`, or
 `-`. Admission stores a SHA-256 digest of the complete structured request,
-the selected author, and one frozen event timestamp.
+including the selected Kokoro voice, the selected author, and one frozen event
+timestamp.
 
 Reusing the ID with the same request and author returns the existing job.
 Reusing it with different immutable input fails closed. New records use an
