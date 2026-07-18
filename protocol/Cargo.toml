@@ -8,3 +8,4 @@ license = "MIT"
 nmp = { git = "https://github.com/pablof7z/nmp.git", rev = "5135a36558786d857958347ce30314e39472d5ce" }
 nmp-nip29 = { git = "https://github.com/pablof7z/nmp.git", rev = "5135a36558786d857958347ce30314e39472d5ce" }
 serde = { version = "1", features = ["derive"] }
+tts29-contract = { path = "../contract" }

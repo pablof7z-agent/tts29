@@ -20,7 +20,8 @@ The Apple slice proves the architecture on iOS and macOS:
   policy, while each platform executes playback locally through AVPlayer;
 - lifecycle cancellation withdraws the query and shuts NMP down cleanly.
 
-The producer slice provides a crash-recoverable daemon plus a thin local CLI:
+The producer slice provides a crash-recoverable daemon plus thin local and
+hosted ingress surfaces:
 
 - the daemon owns Kokoro, NMP-backed Blossom upload, tracked NIP-29
   publication, journals, and bounded answer waits;
@@ -29,7 +30,9 @@ The producer slice provides a crash-recoverable daemon plus a thin local CLI:
 - `AGENT_NSEC` can authorize one request through NMP's per-write identity
   override without entering config, journals, logs, or responses; and
 - retrying the same request ID resumes the author-bound job instead of creating
-  another spoken item.
+  another spoken item; and
+- a separate HTTPS MCP process validates OAuth issuer, audience, and publish
+  scope before forwarding the same bounded request over the private socket.
 
 The live development defaults point at the existing public TTS group on
 `wss://nip29.f7z.io`, group `tts`. They are bootstrap defaults, not a claim
@@ -70,7 +73,10 @@ The executable event contract is documented in [docs/protocol.md](docs/protocol.
 - `protocol`: shared frozen event model, validation, parsing, and NMP NIP-29
   composition;
 - `core`: app kernel that observes NMP and projects the queue for native shells;
-- `daemon`: durable producer admission and crash-recovery stage runner.
+- `daemon`: durable producer admission and crash-recovery stage runner;
+- `contract`: data-only spoken-item values shared without importing NMP;
+- `producer-api`: versioned private request/response contract and Unix client;
+- `mcp`: HTTPS/OAuth MCP ingress that has no daemon or NMP dependency.
 
 The daemon recovery contract is documented in
 [docs/daemon-recovery.md](docs/daemon-recovery.md).
@@ -78,6 +84,8 @@ Its production Kokoro, Blossom, identity, and group boundary is documented in
 [docs/daemon-production.md](docs/daemon-production.md).
 The local daemon and CLI contract is documented in
 [docs/local-producer.md](docs/local-producer.md).
+The hosted assistant boundary is documented in
+[docs/remote-producer.md](docs/remote-producer.md).
 
 ## Work tracking
 

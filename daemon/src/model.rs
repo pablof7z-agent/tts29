@@ -1,18 +1,6 @@
 use serde::{Deserialize, Serialize};
-use tts29_protocol::{DurableArtifact, FrozenSpokenItem, Question};
-
-#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
-pub struct ProducerRequest {
-    pub request_id: String,
-    pub group_id: String,
-    pub voice: String,
-    pub agent_name: String,
-    pub subject: String,
-    pub summary: String,
-    pub body: String,
-    pub attachments: Vec<DurableArtifact>,
-    pub questions: Vec<Question>,
-}
+use tts29_producer_api::ProducerRequest;
+use tts29_protocol::FrozenSpokenItem;
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct LocalAudioArtifact {
@@ -67,4 +55,48 @@ pub struct JobRecord {
     pub created_at: u64,
     pub request: ProducerRequest,
     pub phase: JobPhase,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn request_signer_stops_before_the_durable_job_model() {
+        let secret = "nsec1request-boundary";
+        let local = crate::LocalPublishRequest {
+            version: crate::LOCAL_PROTOCOL_VERSION,
+            request: request(),
+            wait_for_answer_seconds: None,
+            agent_nsec: Some(secret.into()),
+        };
+        assert!(serde_json::to_string(&local).unwrap().contains(secret));
+        let job = JobRecord {
+            schema_version: 1,
+            request_digest: "a".repeat(64),
+            author: "b".repeat(64),
+            created_at: 1,
+            request: local.request,
+            phase: JobPhase::Admitted,
+        };
+
+        let journal_record = serde_json::to_string(&job).unwrap();
+
+        assert!(!journal_record.contains(secret));
+        assert!(!journal_record.contains("agent_nsec"));
+    }
+
+    fn request() -> ProducerRequest {
+        ProducerRequest {
+            request_id: "secret-boundary".into(),
+            group_id: "tts".into(),
+            voice: "af_heart".into(),
+            agent_name: "Codex".into(),
+            subject: "Secret boundary".into(),
+            summary: "Only the author survives admission.".into(),
+            body: "Do not persist the request signer.".into(),
+            attachments: Vec::new(),
+            questions: Vec::new(),
+        }
+    }
 }

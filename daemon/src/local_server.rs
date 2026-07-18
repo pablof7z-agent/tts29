@@ -117,24 +117,6 @@ pub fn serve_one<S: LocalPublishService>(
     serve_stream(listener.accept()?, service)
 }
 
-pub fn submit_local(
-    socket_path: impl AsRef<Path>,
-    request: &LocalPublishRequest,
-) -> io::Result<LocalPublishResponse> {
-    let payload = serde_json::to_vec(request).map_err(invalid_data)?;
-    if payload.len() > MAX_LOCAL_FRAME_BYTES {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidInput,
-            "local request exceeds the frame limit",
-        ));
-    }
-    let mut stream = UnixStream::connect(socket_path)?;
-    stream.write_all(&payload)?;
-    stream.shutdown(std::net::Shutdown::Write)?;
-    let response = read_bounded(&mut stream)?;
-    serde_json::from_slice(&response).map_err(invalid_data)
-}
-
 fn serve_stream<S: LocalPublishService>(mut stream: UnixStream, service: &mut S) -> io::Result<()> {
     stream.set_read_timeout(Some(IO_TIMEOUT))?;
     stream.set_write_timeout(Some(IO_TIMEOUT))?;

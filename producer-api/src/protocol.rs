@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use tts29_protocol::AnswerBundle;
+use tts29_contract::AnswerBundle;
 
 use crate::ProducerRequest;
 
@@ -8,6 +8,7 @@ pub const MAX_LOCAL_FRAME_BYTES: usize = 128 * 1024;
 pub const MAX_ANSWER_WAIT_SECONDS: u64 = 300;
 
 #[derive(Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct LocalPublishRequest {
     pub version: u16,
     pub request: ProducerRequest,
@@ -70,7 +71,7 @@ impl LocalRequestError {
     }
 }
 
-#[derive(Debug, Deserialize, PartialEq, Serialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(tag = "status", rename_all = "snake_case")]
 pub enum LocalPublishResponse {
     Published {
@@ -97,7 +98,7 @@ impl LocalPublishResponse {
     }
 }
 
-#[derive(Debug, Deserialize, PartialEq, Serialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(tag = "status", rename_all = "snake_case")]
 pub enum AnswerWaitResult {
     NotRequested,
@@ -109,7 +110,6 @@ pub enum AnswerWaitResult {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{JobPhase, JobRecord};
 
     #[test]
     fn response_model_has_no_request_identity_field() {
@@ -125,44 +125,5 @@ mod tests {
 
         assert!(!encoded.contains("nsec"));
         assert!(!encoded.contains("agent_identity"));
-    }
-
-    #[test]
-    fn request_signer_stops_before_the_durable_job_model() {
-        let secret = "nsec1request-boundary";
-        let local = LocalPublishRequest {
-            version: LOCAL_PROTOCOL_VERSION,
-            request: request(),
-            wait_for_answer_seconds: None,
-            agent_nsec: Some(secret.into()),
-        };
-        assert!(serde_json::to_string(&local).unwrap().contains(secret));
-        let job = JobRecord {
-            schema_version: 1,
-            request_digest: "a".repeat(64),
-            author: "b".repeat(64),
-            created_at: 1,
-            request: local.request,
-            phase: JobPhase::Admitted,
-        };
-
-        let journal_record = serde_json::to_string(&job).unwrap();
-
-        assert!(!journal_record.contains(secret));
-        assert!(!journal_record.contains("agent_nsec"));
-    }
-
-    fn request() -> ProducerRequest {
-        ProducerRequest {
-            request_id: "secret-boundary".into(),
-            group_id: "tts".into(),
-            voice: "af_heart".into(),
-            agent_name: "Codex".into(),
-            subject: "Secret boundary".into(),
-            summary: "Only the author survives admission.".into(),
-            body: "Do not persist the request signer.".into(),
-            attachments: Vec::new(),
-            questions: Vec::new(),
-        }
     }
 }
