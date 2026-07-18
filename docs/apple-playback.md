@@ -10,17 +10,20 @@ facts cross FFI or become Nostr events. When the selected item disappears from
 the next Rust snapshot or its audio URL changes, the controller immediately
 stops the old player and clears its local state.
 
-`AVPlayerBackend` is the capability adapter. It owns `AVPlayer`, configures the
-spoken-audio session only when playback begins, observes readiness and bounded
-progress, handles completion/failure notifications, and pauses on audio-session
-interruption. The controller depends on a small backend protocol so lifecycle
-behavior is unit-testable without moving policy into AVFoundation callbacks.
+`AVPlayerBackend` is the shared iOS/macOS capability adapter. It owns `AVPlayer`,
+observes readiness and bounded progress, and handles completion/failure
+notifications. On iOS it also configures the spoken-audio session only when
+playback begins and pauses on audio-session interruption. The controller depends
+on a small backend protocol so lifecycle behavior is unit-testable without
+moving policy into AVFoundation callbacks.
 
 Production projections admit HTTPS audio. Debug builds additionally admit a
 file URL so the UI test can write a deterministic WAV inside the app sandbox.
 That launch fixture injects a completed queue snapshot and never starts the
 Rust kernel; it is available only under the `DEBUG` compilation condition.
 
-The simulator gate verifies both local state transitions and an actual AVPlayer
-start through XcodeBuildMCP. Unavailable audio remains a visible row-local
-failure and never crashes or mutates the shared queue.
+The iPhone simulator gate verifies local state transitions and an actual
+AVPlayer start. The macOS gates compile the same capability backend, run the
+shared lifecycle tests, and launch the native app through XcodeBuildMCP.
+Unavailable audio remains a visible row-local failure and never crashes or
+mutates the shared queue.

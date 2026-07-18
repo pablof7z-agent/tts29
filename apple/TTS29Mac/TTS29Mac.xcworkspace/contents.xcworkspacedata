@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Workspace
+   version = "1.0">
+   <FileRef
+      location = "group:../TTS29Package">
+   </FileRef>
+   <FileRef
+      location = "container:TTS29Mac.xcodeproj">
+   </FileRef>
+</Workspace>

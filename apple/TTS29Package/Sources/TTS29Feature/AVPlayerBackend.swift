@@ -8,34 +8,17 @@ final class AVPlayerBackend: AudioPlaybackBackend {
     private let player = AVPlayer()
     private var currentItem: AVPlayerItem?
     private var timeObserver: Any?
-    private var notifications: [NSObjectProtocol] = []
+    private var itemNotifications: [NSObjectProtocol] = []
     private var reportedReady = false
     private var reportedFailure = false
+#if os(iOS)
+    private var interruptionNotification: NSObjectProtocol?
+#endif
 
-    init() {
-        let interval = CMTime(seconds: 0.25, preferredTimescale: 600)
-        timeObserver = player.addPeriodicTimeObserver(
-            forInterval: interval,
-            queue: .main
-        ) { [weak self] _ in
-            MainActor.assumeIsolated {
-                self?.tick()
-            }
-        }
-        let interruption = NotificationCenter.default.addObserver(
-            forName: AVAudioSession.interruptionNotification,
-            object: AVAudioSession.sharedInstance(),
-            queue: .main
-        ) { [weak self] note in
-            let rawType = note.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt
-            MainActor.assumeIsolated {
-                self?.handleInterruption(rawType)
-            }
-        }
-        notifications.append(interruption)
-    }
+    init() {}
 
     func load(_ url: URL) {
+        installPlaybackObservers()
         removeItemNotifications()
         reportedReady = false
         reportedFailure = false
@@ -43,7 +26,7 @@ final class AVPlayerBackend: AudioPlaybackBackend {
         currentItem = item
         player.replaceCurrentItem(with: item)
         let center = NotificationCenter.default
-        notifications.append(center.addObserver(
+        itemNotifications.append(center.addObserver(
             forName: .AVPlayerItemDidPlayToEndTime,
             object: item,
             queue: .main
@@ -52,7 +35,7 @@ final class AVPlayerBackend: AudioPlaybackBackend {
                 self?.onEvent?(.completed)
             }
         })
-        notifications.append(center.addObserver(
+        itemNotifications.append(center.addObserver(
             forName: .AVPlayerItemFailedToPlayToEndTime,
             object: item,
             queue: .main
@@ -65,18 +48,46 @@ final class AVPlayerBackend: AudioPlaybackBackend {
         })
     }
 
+    private func installPlaybackObservers() {
+        guard timeObserver == nil else { return }
+        let interval = CMTime(seconds: 0.25, preferredTimescale: 600)
+        timeObserver = player.addPeriodicTimeObserver(
+            forInterval: interval,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.tick()
+            }
+        }
+#if os(iOS)
+        interruptionNotification = NotificationCenter.default.addObserver(
+            forName: AVAudioSession.interruptionNotification,
+            object: AVAudioSession.sharedInstance(),
+            queue: .main
+        ) { [weak self] note in
+            let rawType = note.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt
+            MainActor.assumeIsolated {
+                self?.handleInterruption(rawType)
+            }
+        }
+#endif
+    }
+
     func play() {
+#if os(iOS)
         do {
             let session = AVAudioSession.sharedInstance()
             try session.setCategory(.playback, mode: .spokenAudio)
             try session.setActive(true)
-            if player.currentItem?.currentTime() == player.currentItem?.duration {
-                player.seek(to: .zero)
-            }
-            player.play()
         } catch {
             reportFailure("The audio session is unavailable.")
+            return
         }
+#endif
+        if player.currentItem?.currentTime() == player.currentItem?.duration {
+            player.seek(to: .zero)
+        }
+        player.play()
     }
 
     func pause() {
@@ -88,12 +99,24 @@ final class AVPlayerBackend: AudioPlaybackBackend {
         removeItemNotifications()
         currentItem = nil
         player.replaceCurrentItem(with: nil)
+        if let timeObserver {
+            player.removeTimeObserver(timeObserver)
+            self.timeObserver = nil
+        }
+#if os(iOS)
+        if let interruptionNotification {
+            NotificationCenter.default.removeObserver(interruptionNotification)
+            self.interruptionNotification = nil
+        }
+#endif
         reportedReady = false
         reportedFailure = false
+#if os(iOS)
         try? AVAudioSession.sharedInstance().setActive(
             false,
             options: .notifyOthersOnDeactivation
         )
+#endif
     }
 
     private func tick() {
@@ -112,12 +135,14 @@ final class AVPlayerBackend: AudioPlaybackBackend {
         }
     }
 
+#if os(iOS)
     private func handleInterruption(_ raw: UInt?) {
         guard let raw,
               AVAudioSession.InterruptionType(rawValue: raw) == .began else { return }
         player.pause()
         onEvent?(.interrupted)
     }
+#endif
 
     private func reportFailure(_ message: String) {
         guard !reportedFailure else { return }
@@ -127,10 +152,9 @@ final class AVPlayerBackend: AudioPlaybackBackend {
     }
 
     private func removeItemNotifications() {
-        guard notifications.count > 1 else { return }
-        for notification in notifications.dropFirst() {
+        for notification in itemNotifications {
             NotificationCenter.default.removeObserver(notification)
         }
-        notifications.removeSubrange(1...)
+        itemNotifications.removeAll()
     }
 }
