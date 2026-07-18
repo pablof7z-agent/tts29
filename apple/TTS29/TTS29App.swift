@@ -5,8 +5,19 @@ import TTS29Feature
 struct TTS29App: App {
     var body: some Scene {
         WindowGroup {
-            ContentView(initialSnapshot: Self.injectedSnapshot)
+            ContentView(
+                initialSnapshot: Self.injectedSnapshot,
+                autoPlayItemID: Self.autoPlayItemID
+            )
         }
+    }
+
+    private static var autoPlayItemID: String? {
+#if DEBUG
+        ProcessInfo.processInfo.environment["TTS29_UI_AUTOPLAY_ID"]
+#else
+        nil
+#endif
     }
 
     private static var injectedSnapshot: QueueSnapshot? {

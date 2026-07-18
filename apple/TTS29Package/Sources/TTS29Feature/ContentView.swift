@@ -4,9 +4,11 @@ public struct ContentView: View {
     @State private var store: TTS29Store
     @State private var playback = PlaybackController()
     @State private var showsConnectionSettings = false
+    private let autoPlayItemID: String?
 
-    public init(initialSnapshot: QueueSnapshot? = nil) {
+    public init(initialSnapshot: QueueSnapshot? = nil, autoPlayItemID: String? = nil) {
         _store = State(initialValue: TTS29Store(initialSnapshot: initialSnapshot))
+        self.autoPlayItemID = autoPlayItemID
     }
 
     public var body: some View {
@@ -41,6 +43,12 @@ public struct ContentView: View {
         }
         .onChange(of: store.snapshot.items.map(PlaybackSource.init), initial: true) {
             playback.synchronize(with: store.snapshot.items)
+            guard playback.selectedItemID == nil,
+                  let autoPlayItemID,
+                  let item = store.snapshot.items.first(where: { $0.id == autoPlayItemID }) else {
+                return
+            }
+            playback.toggle(item)
         }
         .sheet(isPresented: $showsConnectionSettings) {
             ConnectionSettingsView()

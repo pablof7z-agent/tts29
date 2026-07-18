@@ -2025,6 +2025,7 @@ dependencies = [
  "nmp",
  "nmp-blossom",
  "nmp-nip29",
+ "rand_core 0.6.4",
  "reqwest",
  "serde",
  "serde_json",
