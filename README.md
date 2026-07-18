@@ -91,7 +91,8 @@ The local daemon and CLI contract is documented in
 The hosted assistant boundary is documented in
 [docs/remote-producer.md](docs/remote-producer.md).
 Standalone release ownership and signing prerequisites are documented in
-[docs/releases.md](docs/releases.md).
+[docs/releases.md](docs/releases.md), with a non-secret delivery record in
+[docs/release-evidence.md](docs/release-evidence.md).
 
 ## Work tracking
 
