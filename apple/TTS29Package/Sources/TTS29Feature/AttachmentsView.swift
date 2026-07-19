@@ -47,6 +47,52 @@ struct AttachmentsRail: View {
     }
 }
 
+/// Narrated child branches — each is a full spoken item that plays in the same
+/// player. Tapping opens the branch; `< back` returns to this update.
+struct NarratedBranchesRail: View {
+    let children: [SpokenItem]
+    let onOpen: (SpokenItem) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Label("Narrated branches", systemImage: "waveform")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 20)
+
+            VStack(spacing: 8) {
+                ForEach(children) { child in
+                    Button { onOpen(child) } label: {
+                        HStack(spacing: 12) {
+                            Image(systemName: "play.circle.fill")
+                                .font(.title2)
+                                .foregroundStyle(Color.accentColor)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(child.attach?.label ?? child.subject)
+                                    .font(.subheadline.weight(.medium))
+                                    .foregroundStyle(.primary)
+                                    .lineLimit(1)
+                                Text(child.subject)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(1)
+                            }
+                            Spacer()
+                            Image(systemName: "chevron.forward")
+                                .font(.caption).foregroundStyle(.tertiary)
+                        }
+                        .padding(12)
+                        .background(Color.accentColor.opacity(0.10), in: RoundedRectangle(cornerRadius: 14))
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Play narrated branch \(child.attach?.label ?? child.subject)")
+                }
+            }
+            .padding(.horizontal, 20)
+        }
+    }
+}
+
 /// Resolves how an attachment opens: images and text preview in-app; audio and
 /// other files hand off to the system.
 enum AttachmentOpener {

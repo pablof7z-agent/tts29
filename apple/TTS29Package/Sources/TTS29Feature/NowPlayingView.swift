@@ -8,15 +8,17 @@ import SwiftUI
 struct NowPlayingView: View {
     let item: SpokenItem
     let playback: PlaybackController
+    let onOpenChild: (SpokenItem) -> Void
     private let document: TranscriptDocument
     @State private var following = true
     @State private var previewedAttachment: DurableArtifact?
     @Environment(\.openURL) private var openURL
     @Environment(\.dismiss) private var dismiss
 
-    init(item: SpokenItem, playback: PlaybackController) {
+    init(item: SpokenItem, playback: PlaybackController, onOpenChild: @escaping (SpokenItem) -> Void) {
         self.item = item
         self.playback = playback
+        self.onOpenChild = onOpenChild
         document = TranscriptDocument(item.body)
     }
 
@@ -35,9 +37,14 @@ struct NowPlayingView: View {
                             document: document,
                             focusedID: focusedID,
                             attachments: item.attachments,
+                            children: item.children,
                             onSeek: seek,
-                            onOpenAttachment: openAttachment
+                            onOpenAttachment: openAttachment,
+                            onOpenChild: onOpenChild
                         )
+                    }
+                    if !item.children.isEmpty {
+                        NarratedBranchesRail(children: item.children, onOpen: onOpenChild)
                     }
                     if item.hasAttachments {
                         AttachmentsRail(attachments: item.attachments, onOpen: openAttachment)

@@ -69,6 +69,47 @@ import Testing
     #expect(mid >= first! && mid <= last!)
 }
 
+@Test func decodesNestedNarratedChildren() throws {
+    let json = """
+    {
+      "phase": "listening", "relay": "r", "group_id": "g",
+      "items": [{
+        "id": "parent", "author": "a", "created_at": 100, "agent_name": "indigo",
+        "subject": "Proposal", "summary": "s",
+        "body": "Open the [Detailed explanation](attachment:).",
+        "audio_url": "https://cdn/p.mp3",
+        "children": [{
+          "id": "child", "author": "a", "created_at": 101, "agent_name": "indigo",
+          "subject": "Detailed explanation", "summary": "",
+          "body": "Deeper.", "audio_url": "https://cdn/c.mp3",
+          "attach": {"parent_id": "parent", "label": "Detailed explanation"}
+        }]
+      }],
+      "evidence": {"source_count": 1, "shortfall_count": 0}, "error": null
+    }
+    """
+    let snapshot = try JSONDecoder().decode(QueueSnapshot.self, from: Data(json.utf8))
+    let parent = try #require(snapshot.items.first)
+    #expect(parent.children.count == 1)
+    let child = try #require(parent.child(labeled: "Detailed explanation"))
+    #expect(child.attach?.parentId == "parent")
+    #expect(child.subject == "Detailed explanation")
+}
+
+@Test func inlineLinkResolvesToAttachmentOrChild() {
+    let image = DurableArtifact(url: "https://cdn/x.png", sha256: "ab", mediaType: "image/png",
+                                byteCount: 10, label: "Diagram")
+    let child = SpokenItem(id: "c", author: "a", createdAt: 1, subject: "Branch", summary: "",
+                           body: "b", audioURL: "https://cdn/c.mp3",
+                           attach: AttachLink(parentId: "p", label: "More"))
+    let text = "See [Diagram](attachment:) and [More](attachment:) and [Missing](attachment:)."
+    let rewritten = AttachmentLink.rewrite(text, attachments: [image], children: [child])
+    #expect(rewritten.contains("ttsattach://a/0"))
+    #expect(rewritten.contains("ttschild://c/0"))
+    // Unmatched labels stay plain (pending child not yet arrived).
+    #expect(rewritten.contains("[Missing](attachment:)"))
+}
+
 @MainActor
 @Test func rateStoreRemembersPerAgent() {
     let suite = "tts29.rate.\(UUID().uuidString)"

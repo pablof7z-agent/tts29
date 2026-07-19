@@ -2,14 +2,16 @@ import SwiftUI
 
 /// The read-along transcript block list. Blocks focus at paragraph granularity
 /// (opacity-only, since there is no per-word timing). Inline `[label](attachment:)`
-/// references become tappable links, and referenced images render inline —
-/// while the full attachments rail still appears at the end.
+/// references resolve to a file attachment (image inline / tappable link) or to
+/// a narrated child branch (tappable → opens that branch in the same player).
 struct TranscriptBlocks: View {
     let document: TranscriptDocument
     let focusedID: Int?
     let attachments: [DurableArtifact]
+    let children: [SpokenItem]
     let onSeek: (TranscriptBlock) -> Void
     let onOpenAttachment: (DurableArtifact) -> Void
+    let onOpenChild: (SpokenItem) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -18,6 +20,7 @@ struct TranscriptBlocks: View {
                     block: block,
                     focused: focusedID == nil || block.id == focusedID,
                     attachments: attachments,
+                    children: children,
                     onOpenAttachment: onOpenAttachment
                 )
                 .id(block.id)
@@ -27,13 +30,19 @@ struct TranscriptBlocks: View {
         }
         .padding(.horizontal, 20)
         .environment(\.openURL, OpenURLAction { url in
-            guard url.scheme == AttachmentLink.scheme,
-                  let index = Int(url.lastPathComponent),
-                  attachments.indices.contains(index) else {
-                return .systemAction
+            switch url.scheme {
+            case AttachmentLink.attachmentScheme:
+                if let i = Int(url.lastPathComponent), attachments.indices.contains(i) {
+                    onOpenAttachment(attachments[i]); return .handled
+                }
+            case AttachmentLink.childScheme:
+                if let i = Int(url.lastPathComponent), children.indices.contains(i) {
+                    onOpenChild(children[i]); return .handled
+                }
+            default:
+                break
             }
-            onOpenAttachment(attachments[index])
-            return .handled
+            return .systemAction
         })
     }
 }
@@ -42,6 +51,7 @@ private struct TranscriptBlockView: View {
     let block: TranscriptBlock
     let focused: Bool
     let attachments: [DurableArtifact]
+    let children: [SpokenItem]
     let onOpenAttachment: (DurableArtifact) -> Void
 
     var body: some View {
@@ -89,8 +99,6 @@ private struct TranscriptBlockView: View {
         }
     }
 
-    /// Renders text (with inline attachment links) followed by any image
-    /// attachments it references, shown inline.
     @ViewBuilder
     private func textWithInlineImages(_ text: String, font: Font) -> some View {
         let referenced = AttachmentLink.referencedImages(in: text, attachments: attachments)
@@ -103,7 +111,7 @@ private struct TranscriptBlockView: View {
     }
 
     private func inline(_ text: String) -> AttributedString {
-        let rewritten = AttachmentLink.rewrite(text, attachments: attachments)
+        let rewritten = AttachmentLink.rewrite(text, attachments: attachments, children: children)
         let options = AttributedString.MarkdownParsingOptions(
             interpretedSyntax: .inlineOnlyPreservingWhitespace
         )
@@ -134,16 +142,25 @@ private struct InlineAttachmentImage: View {
     }
 }
 
-/// Encodes and resolves inline `[label](attachment:)` references.
+/// Encodes and resolves inline `[label](attachment:)` references against both
+/// file attachments and narrated child branches.
 enum AttachmentLink {
-    static let scheme = "ttsattach"
+    static let attachmentScheme = "ttsattach"
+    static let childScheme = "ttschild"
 
-    /// Rewrites `[label](attachment:)` whose label matches an attachment into a
-    /// resolvable custom-scheme link; unmatched references are left untouched.
-    static func rewrite(_ text: String, attachments: [DurableArtifact]) -> String {
+    /// Rewrites `[label](attachment:)` whose label matches a file attachment or a
+    /// narrated child into a resolvable custom-scheme link. Unmatched references
+    /// (e.g. a child whose event has not arrived yet) are left as plain text.
+    static func rewrite(_ text: String, attachments: [DurableArtifact], children: [SpokenItem]) -> String {
         matches(in: text).reversed().reduce(text) { current, match in
-            guard let index = index(ofLabel: match.label, in: attachments) else { return current }
-            let replacement = "[\(match.label)](\(scheme)://a/\(index))"
+            let replacement: String
+            if let index = attachments.firstIndex(where: { $0.label == match.label }) {
+                replacement = "[\(match.label)](\(attachmentScheme)://a/\(index))"
+            } else if let index = children.firstIndex(where: { $0.attach?.label == match.label }) {
+                replacement = "[\(match.label)](\(childScheme)://c/\(index))"
+            } else {
+                return current
+            }
             return (current as NSString).replacingCharacters(in: match.range, with: replacement)
         }
     }
@@ -152,17 +169,13 @@ enum AttachmentLink {
         var seen = Set<Int>()
         var images: [DurableArtifact] = []
         for match in matches(in: text) {
-            guard let index = index(ofLabel: match.label, in: attachments),
+            guard let index = attachments.firstIndex(where: { $0.label == match.label }),
                   !seen.contains(index),
                   AttachmentKind(mediaType: attachments[index].mediaType) == .image else { continue }
             seen.insert(index)
             images.append(attachments[index])
         }
         return images
-    }
-
-    private static func index(ofLabel label: String, in attachments: [DurableArtifact]) -> Int? {
-        attachments.firstIndex { $0.label == label }
     }
 
     private struct Match { let range: NSRange; let label: String }

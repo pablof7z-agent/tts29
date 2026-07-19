@@ -31,18 +31,25 @@ public struct ContentView: View {
                 playback: playback,
                 isFiltering: isFiltering,
                 namespace: zoom,
-                onOpen: { path.append($0) },
+                onOpen: { path.append($0.id) },
                 onPlay: { playback.toggle($0) },
                 onEditConnection: { showsConnectionSettings = true }
             )
             .navigationTitle("TTS29")
             .toolbar { toolbar }
-            .navigationDestination(for: SpokenItem.self) { item in
-                NowPlayingView(item: item, playback: playback)
-                    .zoomDestination(item.id, in: zoom)
+            .navigationDestination(for: String.self) { id in
+                // Resolve the live item each snapshot so nested children,
+                // answers, and reactions stay fresh in the pushed surface.
+                if let live = PlaybackController.flatten(store.snapshot.items)
+                    .first(where: { $0.id == id }) {
+                    NowPlayingView(item: live, playback: playback, onOpenChild: openChild)
+                        .zoomDestination(id, in: zoom)
+                } else {
+                    ContentUnavailableView("Update unavailable", systemImage: "waveform")
+                }
             }
             .safeAreaInset(edge: .bottom) {
-                MiniPlayerView(playback: playback) { path.append($0) }
+                MiniPlayerView(playback: playback) { path.append($0.id) }
                     .animation(.snappy, value: playback.selectedItemID)
             }
         }
@@ -116,10 +123,17 @@ public struct ContentView: View {
         )
     }
 
+    /// Opening a narrated branch pushes the same player surface and starts it,
+    /// so it plays exactly like the main message; `< back` returns here.
+    private func openChild(_ child: SpokenItem) {
+        path.append(child.id)
+        playback.toggle(child)
+    }
+
     private func autoPlayIfNeeded(_ items: [SpokenItem]) {
         guard playback.selectedItemID == nil,
               let autoPlayItemID,
-              let item = items.first(where: { $0.id == autoPlayItemID }) else { return }
+              let item = PlaybackController.flatten(items).first(where: { $0.id == autoPlayItemID }) else { return }
         playback.toggle(item)
     }
 
@@ -127,8 +141,8 @@ public struct ContentView: View {
     /// directly on launch without depending on a fragile programmatic tap.
     private func autoOpenIfNeeded(_ items: [SpokenItem]) {
         guard !didAutoOpen, let openItemID,
-              let item = items.first(where: { $0.id == openItemID }) else { return }
+              let item = PlaybackController.flatten(items).first(where: { $0.id == openItemID }) else { return }
         didAutoOpen = true
-        path.append(item)
+        path.append(item.id)
     }
 }

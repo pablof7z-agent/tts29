@@ -9,6 +9,8 @@ use tts29_protocol::{
 };
 
 const MAX_PROJECTED_ITEMS: usize = 40;
+const MAX_ATTACH_DEPTH: usize = 3;
+const MAX_CHILDREN: usize = 12;
 
 pub fn project(
     configuration: &KernelConfiguration,
@@ -69,30 +71,68 @@ pub fn project(
         .count();
 
     let viewer = configuration.viewer_pubkey.as_deref();
-    let mut projected = items
-        .into_values()
-        .filter_map(|mut item| {
-            let candidates = answers.remove(&item.id).unwrap_or_default();
-            let (valid, invalid): (Vec<_>, Vec<_>) = candidates
-                .into_iter()
-                .partition(|answer| valid_answer(&item.questions, answer));
-            rejected_event_count += invalid.len();
-            item.answer = valid
-                .into_iter()
-                .max_by(|left, right| answer_order(left).cmp(&answer_order(right)));
-            item.acknowledgement = viewer
-                .and_then(|author| acknowledgements.remove(&(item.id.clone(), author.to_string())));
-            item.reactions = reaction_summaries(&item.id, &reactions);
-            (!is_hidden(&item)).then_some(item)
+    // Resolve per-item related state for every item, parents and children alike.
+    let mut resolved: BTreeMap<String, SpokenItem> = BTreeMap::new();
+    for (id, mut item) in items {
+        let candidates = answers.remove(&item.id).unwrap_or_default();
+        let (valid, invalid): (Vec<_>, Vec<_>) = candidates
+            .into_iter()
+            .partition(|answer| valid_answer(&item.questions, answer));
+        rejected_event_count += invalid.len();
+        item.answer = valid
+            .into_iter()
+            .max_by(|left, right| answer_order(left).cmp(&answer_order(right)));
+        item.acknowledgement = viewer
+            .and_then(|author| acknowledgements.remove(&(item.id.clone(), author.to_string())));
+        item.reactions = reaction_summaries(&item.id, &reactions);
+        resolved.insert(id, item);
+    }
+
+    // Index narrated children by parent; top-level items keep no attach link.
+    let mut children_by_parent: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    let mut top_level: Vec<String> = Vec::new();
+    for (id, item) in &resolved {
+        match item.attach.as_ref() {
+            Some(link) if resolved.contains_key(&link.parent_id) => children_by_parent
+                .entry(link.parent_id.clone())
+                .or_default()
+                .push(id.clone()),
+            Some(_) => rejected_event_count += 1, // orphan: parent absent
+            None => top_level.push(id.clone()),
+        }
+    }
+    for ids in children_by_parent.values_mut() {
+        ids.sort_by(|left, right| {
+            resolved[left]
+                .created_at
+                .cmp(&resolved[right].created_at)
+                .then_with(|| left.cmp(right))
+        });
+    }
+
+    top_level.retain(|id| !is_hidden(&resolved[id]));
+    top_level.sort_by(|left, right| {
+        resolved[right]
+            .created_at
+            .cmp(&resolved[left].created_at)
+            .then_with(|| left.cmp(right))
+    });
+    top_level.truncate(MAX_PROJECTED_ITEMS);
+
+    let mut visited = BTreeSet::new();
+    let projected = top_level
+        .iter()
+        .filter_map(|id| {
+            assemble_subtree(
+                id,
+                &resolved,
+                &children_by_parent,
+                0,
+                &mut visited,
+                &mut rejected_event_count,
+            )
         })
         .collect::<Vec<_>>();
-    projected.sort_by(|left, right| {
-        right
-            .created_at
-            .cmp(&left.created_at)
-            .then_with(|| left.id.cmp(&right.id))
-    });
-    projected.truncate(MAX_PROJECTED_ITEMS);
 
     QueueSnapshot {
         phase: KernelPhase::Listening,
@@ -106,6 +146,45 @@ pub fn project(
         },
         error: None,
     }
+}
+
+/// Clones an item with its narrated children nested beneath it, bounded by
+/// depth and child count. Cycles and overflow are dropped and counted.
+fn assemble_subtree(
+    id: &str,
+    resolved: &BTreeMap<String, SpokenItem>,
+    children_by_parent: &BTreeMap<String, Vec<String>>,
+    depth: usize,
+    visited: &mut BTreeSet<String>,
+    rejected: &mut usize,
+) -> Option<SpokenItem> {
+    if !visited.insert(id.to_string()) {
+        return None;
+    }
+    let mut item = resolved.get(id)?.clone();
+    let child_ids = children_by_parent
+        .get(id)
+        .cloned()
+        .unwrap_or_default();
+    if depth >= MAX_ATTACH_DEPTH {
+        *rejected += child_ids.len();
+        item.children = Vec::new();
+        return Some(item);
+    }
+    let mut children = Vec::new();
+    for child_id in child_ids {
+        if children.len() >= MAX_CHILDREN {
+            *rejected += 1;
+            continue;
+        }
+        match assemble_subtree(&child_id, resolved, children_by_parent, depth + 1, visited, rejected)
+        {
+            Some(child) => children.push(child),
+            None => *rejected += 1,
+        }
+    }
+    item.children = children;
+    Some(item)
 }
 
 fn replace_latest<K: Ord, V>(

@@ -156,6 +156,23 @@ public struct Acknowledgement: Codable, Hashable, Sendable {
     }
 }
 
+/// Links a narrated child item to the parent that references it; the label is
+/// the parent's inline `[label](attachment:)` text.
+public struct AttachLink: Codable, Hashable, Sendable {
+    public let parentId: String
+    public let label: String
+
+    enum CodingKeys: String, CodingKey {
+        case label
+        case parentId = "parent_id"
+    }
+
+    public init(parentId: String, label: String) {
+        self.parentId = parentId
+        self.label = label
+    }
+}
+
 public struct ReactionSummary: Codable, Hashable, Sendable, Identifiable {
     public let emoji: String
     public let count: Int

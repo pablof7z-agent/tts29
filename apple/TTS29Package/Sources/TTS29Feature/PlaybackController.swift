@@ -126,13 +126,19 @@ public final class PlaybackController {
     public func synchronize(with items: [SpokenItem]) {
         orderedItems = items
         guard let selectedItemID else { return }
-        guard let current = items.first(where: { $0.id == selectedItemID }),
+        // Narrated children are nested, so search the whole tree, not just the
+        // top-level queue, before deciding a selected item has disappeared.
+        guard let current = Self.flatten(items).first(where: { $0.id == selectedItemID }),
               current.playableURL == selectedAudioURL else {
             reset()
             return
         }
         // Keep the retained item current so metadata (agent, subject) stays fresh.
         selectedItem = current
+    }
+
+    static func flatten(_ items: [SpokenItem]) -> [SpokenItem] {
+        items.flatMap { [$0] + flatten($0.children) }
     }
 
     public func symbol(for item: SpokenItem) -> String {
