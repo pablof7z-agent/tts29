@@ -34,6 +34,9 @@ TARGETED_DEVICE_FAMILY = 1,2
 // ==========================================
 GENERATE_INFOPLIST_FILE = YES
 INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO
+// Spoken audio continues when backgrounded and drives the lock screen / Control
+// Center now-playing controls.
+INFOPLIST_KEY_UIBackgroundModes = audio
 INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationLandscapeRight UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationPortrait
 INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = UIInterfaceOrientationLandscapeRight UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown
 

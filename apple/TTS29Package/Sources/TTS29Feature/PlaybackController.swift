@@ -16,6 +16,13 @@ protocol AudioPlaybackBackend: AnyObject {
     func play()
     func pause()
     func stop()
+    func seek(to time: TimeInterval)
+    func setRate(_ rate: Float)
+}
+
+extension AudioPlaybackBackend {
+    func seek(to time: TimeInterval) {}
+    func setRate(_ rate: Float) {}
 }
 
 public enum PlaybackPhase: Equatable, Sendable {
@@ -30,23 +37,35 @@ public enum PlaybackPhase: Equatable, Sendable {
 @Observable
 @MainActor
 public final class PlaybackController {
-    public private(set) var selectedItemID: String?
-    public private(set) var phase: PlaybackPhase = .idle
-    public private(set) var currentTime: TimeInterval = 0
-    public private(set) var duration: TimeInterval = 0
+    public private(set) var selectedItem: SpokenItem?
+    public internal(set) var phase: PlaybackPhase = .idle
+    public internal(set) var currentTime: TimeInterval = 0
+    public internal(set) var duration: TimeInterval = 0
     public private(set) var failureMessage: String?
+    public internal(set) var rate: Float = 1.0
+    public var autoplayEnabled = true
 
-    private let backend: AudioPlaybackBackend
-    private var selectedAudioURL: String?
-    private var wantsPlayback = false
+    /// Invoked whenever now-playing state materially changes, so a platform
+    /// media surface (Control Center, lock screen) can mirror it.
+    public var onPlaybackChange: ((PlaybackController) -> Void)?
+
+    let backend: AudioPlaybackBackend
+    let rateStore: PlaybackRateStore
+    private(set) var orderedItems: [SpokenItem] = []
+    var selectedAudioURL: String?
+    var wantsPlayback = false
+
+    public var selectedItemID: String? { selectedItem?.id }
 
     public init() {
         backend = AVPlayerBackend()
+        rateStore = PlaybackRateStore()
         connectBackend()
     }
 
-    init(backend: AudioPlaybackBackend) {
+    init(backend: AudioPlaybackBackend, rateStore: PlaybackRateStore = PlaybackRateStore()) {
         self.backend = backend
+        self.rateStore = rateStore
         connectBackend()
     }
 
@@ -67,31 +86,30 @@ public final class PlaybackController {
     }
 
     public func toggle(_ item: SpokenItem) {
-        guard let source = item.audioURL, let url = admittedURL(source) else {
-            selectedItemID = item.id
-            selectedAudioURL = item.audioURL
+        guard let source = item.playableURL, let url = admittedURL(source) else {
+            selectedItem = item
+            selectedAudioURL = item.playableURL
             fail("Audio URL is unavailable.")
             return
         }
         if selectedItemID != item.id || selectedAudioURL != source || phase == .failed {
             backend.stop()
-            selectedItemID = item.id
+            selectedItem = item
             selectedAudioURL = source
             currentTime = 0
             duration = 0
             failureMessage = nil
             wantsPlayback = true
             phase = .loading
+            rate = rateStore.rate(for: item.agentName)
+            backend.setRate(rate)
             backend.load(url)
             backend.play()
+            notifyChange()
             return
         }
         switch phase {
-        case .playing:
-            wantsPlayback = false
-            backend.pause()
-            phase = .paused
-        case .loading:
+        case .playing, .loading:
             wantsPlayback = false
             backend.pause()
             phase = .paused
@@ -102,15 +120,19 @@ public final class PlaybackController {
         case .failed:
             break
         }
+        notifyChange()
     }
 
     public func synchronize(with items: [SpokenItem]) {
+        orderedItems = items
         guard let selectedItemID else { return }
         guard let current = items.first(where: { $0.id == selectedItemID }),
-              current.audioURL == selectedAudioURL else {
+              current.playableURL == selectedAudioURL else {
             reset()
             return
         }
+        // Keep the retained item current so metadata (agent, subject) stays fresh.
+        selectedItem = current
     }
 
     public func symbol(for item: SpokenItem) -> String {
@@ -141,44 +163,56 @@ public final class PlaybackController {
         switch event {
         case let .ready(duration):
             self.duration = validTime(duration)
+            backend.setRate(rate)
             if wantsPlayback {
                 phase = .playing
             }
+            notifyChange()
         case let .progress(current, duration):
             currentTime = validTime(current)
             self.duration = validTime(duration)
+            notifyChange()
         case .completed:
             currentTime = duration
             wantsPlayback = false
             phase = .completed
+            notifyChange()
+            autoplayNextIfPossible()
         case .interrupted:
             wantsPlayback = false
             phase = .paused
+            notifyChange()
         case let .failed(message):
             fail(message)
         }
     }
 
-    private func reset() {
+    func reset() {
         backend.stop()
-        selectedItemID = nil
+        selectedItem = nil
         selectedAudioURL = nil
         phase = .idle
         currentTime = 0
         duration = 0
         failureMessage = nil
         wantsPlayback = false
+        notifyChange()
     }
 
-    private func fail(_ message: String) {
+    func fail(_ message: String) {
         backend.stop()
         failureMessage = message
         wantsPlayback = false
         phase = .failed
+        notifyChange()
+    }
+
+    func notifyChange() {
+        onPlaybackChange?(self)
     }
 }
 
-private func admittedURL(_ value: String) -> URL? {
+func admittedURL(_ value: String) -> URL? {
     guard let url = URL(string: value) else { return nil }
     if url.scheme == "https" { return url }
 #if DEBUG
@@ -187,6 +221,6 @@ private func admittedURL(_ value: String) -> URL? {
     return nil
 }
 
-private func validTime(_ value: TimeInterval) -> TimeInterval {
+func validTime(_ value: TimeInterval) -> TimeInterval {
     value.isFinite && value >= 0 ? value : 0
 }

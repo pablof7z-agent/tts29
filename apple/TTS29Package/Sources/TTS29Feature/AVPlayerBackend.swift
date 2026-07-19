@@ -11,6 +11,7 @@ final class AVPlayerBackend: AudioPlaybackBackend {
     private var itemNotifications: [NSObjectProtocol] = []
     private var reportedReady = false
     private var reportedFailure = false
+    private var desiredRate: Float = 1.0
 #if os(iOS)
     private var interruptionNotification: NSObjectProtocol?
 #endif
@@ -87,11 +88,24 @@ final class AVPlayerBackend: AudioPlaybackBackend {
         if player.currentItem?.currentTime() == player.currentItem?.duration {
             player.seek(to: .zero)
         }
-        player.play()
+        player.rate = desiredRate
     }
 
     func pause() {
         player.pause()
+    }
+
+    func seek(to time: TimeInterval) {
+        let target = CMTime(seconds: max(time, 0), preferredTimescale: 600)
+        player.seek(to: target, toleranceBefore: .zero, toleranceAfter: .zero)
+    }
+
+    func setRate(_ rate: Float) {
+        desiredRate = rate
+        // Only steer live playback; a paused item keeps its rate for resume.
+        if player.rate != 0 {
+            player.rate = rate
+        }
     }
 
     func stop() {
