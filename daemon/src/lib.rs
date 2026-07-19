@@ -23,7 +23,7 @@ pub use daemon_config::{load_daemon_config, LoadedDaemonConfig};
 pub use journal::{FileJobJournal, InsertOutcome, JobJournal, JournalError};
 pub use kokoro::{KokoroAuth, KokoroConfig, KokoroSynthesizer};
 #[cfg(unix)]
-pub use live_smoke::{run_live_relay_smoke, LiveRelayEvidence};
+pub use live_smoke::{run_live_relay_smoke, run_tree_relay_smoke, LiveRelayEvidence, TreeSmokeEvidence};
 #[cfg(unix)]
 pub use local_server::{
     serve_forever, serve_one, serve_until_shutdown, LocalServerShutdown, PrivateUnixListener,
@@ -31,7 +31,7 @@ pub use local_server::{
 pub use local_service::LocalPublishService;
 pub use model::{JobPhase, JobRecord, LocalAudioArtifact, MembershipEvidence};
 pub use nmp_publisher::NmpPublisher;
-pub use production::{ProductionConfig, ProductionProducer};
+pub use production::{ProductionConfig, ProductionProducer, TreePublication};
 pub use runner::{
     ArtifactUploader, AuthorizationStep, ProducerError, ProducerRunner, Publisher, Synthesizer,
 };

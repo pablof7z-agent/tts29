@@ -27,9 +27,9 @@ There is exactly one audio artifact and at most twelve attachments. An artifact
 is portable only when the URL is HTTPS, the digest is 64 lowercase hexadecimal
 characters, the media type is explicit, and its nonzero size is at most 250
 MiB. The complete item is published only after those immutable bytes are
-durable at their URLs. `summary` is optional — narrated attachment children
-carry only a title and message — but a duplicate `summary` still invalidates
-the event.
+durable at their URLs. `agent` and `summary` are optional — with no `agent`
+tag the signing pubkey is the identity, and narrated children carry only a
+title and message — but a duplicate of either still invalidates the event.
 
 ## Narrated attachments
 
@@ -37,13 +37,13 @@ A markdown or text attachment that is itself spoken is published as its own
 `item` event, after its parent, carrying one link back to the parent:
 
 ```text
-["e", <parent item event id>, "", "attach", <label>]
+["e", <parent item event id>, "", "attach"]
 ```
 
-`<label>` is the exact visible text of the parent's inline
-`[<label>](attachment:)` reference, so a client resolves the link to this child.
-An item carries at most one `e` tag; any other `e` tag on an item invalidates
-it. A child is an ordinary item — it has its own audio, title, file
+The child's `title` is the exact visible text of the parent's inline
+`[<title>](attachment:)` reference, so a client resolves the link to this
+child. An item carries at most one `e` tag; any other `e` tag on an item
+invalidates it. A child is an ordinary item — it has its own audio, title, file
 attachments, and may itself reference narrated children, recursively. File
 attachments (images and other binaries) remain `attachment` tags on the item
 that references them; only spoken markdown/text becomes a child item.

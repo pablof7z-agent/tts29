@@ -191,6 +191,7 @@ fn request() -> ProducerRequest {
         body: "Turn this request into durable speech.".into(),
         attachments: Vec::new(),
         questions: Vec::new(),
+    attach: None,
     }
 }
 
@@ -212,6 +213,7 @@ fn spoken_item(author: String) -> FrozenSpokenItem {
         },
         attachments: Vec::new(),
         questions: Vec::new(),
+    attach: None,
     }
 }
 

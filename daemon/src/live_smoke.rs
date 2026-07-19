@@ -119,6 +119,82 @@ pub fn run_live_relay_smoke(path: impl AsRef<Path>) -> Result<LiveRelayEvidence,
     })
 }
 
+#[derive(Debug, Serialize)]
+pub struct TreeSmokeEvidence {
+    pub relay: String,
+    pub group_id: String,
+    pub root_event_id: String,
+    pub child_event_ids: Vec<String>,
+}
+
+/// Publishes a real narrated-attachment tree through the daemon: a root message
+/// with a nested child and grandchild, each synthesized, uploaded, and
+/// published parent-first. Points at the configured (already-existing) group.
+pub fn run_tree_relay_smoke(path: impl AsRef<Path>) -> Result<TreeSmokeEvidence, String> {
+    use tts29_producer_api::{SpokenTree, TreeAttachment};
+
+    let mut loaded = load_daemon_config(path)?;
+    let relay = loaded.production.host.clone();
+    let stamp = unix_seconds()?;
+    // Create a fresh group owned by the daemon identity so it can authorize
+    // membership and publish every node.
+    let group_id =
+        std::env::var("TTS29_TREE_GROUP").unwrap_or_else(|_| format!("tts29-tree-{stamp}"));
+    loaded.production.group_id = group_id.clone();
+    let relay_url = RelayUrl::parse(&relay).map_err(|_| "tree relay URL is invalid".to_string())?;
+    create_group(&relay_url, &group_id, &loaded.production.secret_key)?;
+    let dir = std::env::temp_dir().join(format!("tts29-tree-{stamp}"));
+    std::fs::create_dir_all(&dir).map_err(|error| format!("tree temp dir failed: {error}"))?;
+    let write = |name: &str, body: &str| -> Result<String, String> {
+        let file = dir.join(name);
+        std::fs::write(&file, body).map_err(|error| format!("tree message write failed: {error}"))?;
+        file.to_str()
+            .map(str::to_string)
+            .ok_or_else(|| "tree message path is not UTF-8".to_string())
+    };
+    let root = write(
+        "root.md",
+        "Daemon-published proposal. Open the [Detailed explanation](attachment:).",
+    )?;
+    let child = write(
+        "child.md",
+        "Here is the detailed explanation. See the [Further note](attachment:).",
+    )?;
+    let grandchild = write("gc.md", "This is the further note, one level deeper.")?;
+
+    let tree = SpokenTree {
+        request_id: format!("tree-{stamp}"),
+        group_id: group_id.clone(),
+        title: "Daemon proposal".into(),
+        summary: Some("Published as a tree by the daemon.".into()),
+        message: root,
+        questions: Vec::new(),
+        attachments: vec![TreeAttachment::Narrated {
+            label: "Detailed explanation".into(),
+            message: child,
+            questions: Vec::new(),
+            attachments: vec![TreeAttachment::Narrated {
+                label: "Further note".into(),
+                message: grandchild,
+                questions: Vec::new(),
+                attachments: Vec::new(),
+            }],
+        }],
+    };
+
+    let mut producer = ProductionProducer::open(loaded.production)?;
+    let publication = producer.publish_tree(tree, "indigo-claude");
+    producer.shutdown();
+    let publication = publication.map_err(|error| format!("tree publication failed: {error}"))?;
+    let _ = std::fs::remove_dir_all(&dir);
+    Ok(TreeSmokeEvidence {
+        relay,
+        group_id,
+        root_event_id: publication.root_event_id,
+        child_event_ids: publication.child_event_ids,
+    })
+}
+
 fn disposable_secret() -> String {
     let mut bytes = [0u8; 32];
     OsRng.fill_bytes(&mut bytes);
@@ -164,5 +240,6 @@ fn live_request(request_id: &str, group_id: &str) -> ProducerRequest {
                 description: None,
             }],
         }],
+    attach: None,
     }
 }

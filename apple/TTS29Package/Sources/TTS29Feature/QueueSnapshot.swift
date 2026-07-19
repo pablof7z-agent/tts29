@@ -82,10 +82,10 @@ public struct SpokenItem: Codable, Identifiable, Sendable, Equatable, Hashable {
         children = try container.decodeIfPresent([SpokenItem].self, forKey: .children) ?? []
     }
 
-    /// A narrated child branch of this item whose label matches an inline
+    /// A narrated child branch of this item whose title matches an inline
     /// `[label](attachment:)` reference in the body.
     public func child(labeled label: String) -> SpokenItem? {
-        children.first { $0.attach?.label == label }
+        children.first { $0.subject == label }
     }
 
     /// The playable audio source, preferring the convenience URL and falling

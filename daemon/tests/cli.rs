@@ -113,5 +113,6 @@ fn request() -> ProducerRequest {
         body: "Publish this request.".into(),
         attachments: Vec::new(),
         questions: Vec::new(),
+        attach: None,
     }
 }

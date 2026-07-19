@@ -82,7 +82,7 @@ import Testing
           "id": "child", "author": "a", "created_at": 101, "agent_name": "indigo",
           "subject": "Detailed explanation", "summary": "",
           "body": "Deeper.", "audio_url": "https://cdn/c.mp3",
-          "attach": {"parent_id": "parent", "label": "Detailed explanation"}
+          "attach": {"parent_id": "parent"}
         }]
       }],
       "evidence": {"source_count": 1, "shortfall_count": 0}, "error": null
@@ -99,9 +99,9 @@ import Testing
 @Test func inlineLinkResolvesToAttachmentOrChild() {
     let image = DurableArtifact(url: "https://cdn/x.png", sha256: "ab", mediaType: "image/png",
                                 byteCount: 10, label: "Diagram")
-    let child = SpokenItem(id: "c", author: "a", createdAt: 1, subject: "Branch", summary: "",
+    let child = SpokenItem(id: "c", author: "a", createdAt: 1, subject: "More", summary: "",
                            body: "b", audioURL: "https://cdn/c.mp3",
-                           attach: AttachLink(parentId: "p", label: "More"))
+                           attach: AttachLink(parentId: "p"))
     let text = "See [Diagram](attachment:) and [More](attachment:) and [Missing](attachment:)."
     let rewritten = AttachmentLink.rewrite(text, attachments: [image], children: [child])
     #expect(rewritten.contains("ttsattach://a/0"))

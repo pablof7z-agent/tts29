@@ -118,9 +118,8 @@ fn nests_narrated_child_and_excludes_it_from_top_level() {
     let parent = &snapshot.items[0];
     assert_eq!(parent.children.len(), 1);
     let child = &parent.children[0];
-    let link = child.attach.as_ref().unwrap();
-    assert_eq!(link.label, "Details");
-    assert_eq!(link.parent_id, hex(1, 64));
+    assert_eq!(child.subject, "Details");
+    assert_eq!(child.attach.as_ref().unwrap().parent_id, hex(1, 64));
     assert_eq!(snapshot.evidence.rejected_event_count, 0);
 }
 
@@ -160,7 +159,7 @@ fn child_row(id: u8, created_at: u64, parent: u8, label: &str) -> Row {
         vec![
             vec!["h", GROUP],
             vec!["tts29", "item", "1"],
-            vec!["title", "Detailed explanation"],
+            vec!["title", label],
             vec!["agent", "Codex"],
             vec![
                 "audio",
@@ -169,7 +168,7 @@ fn child_row(id: u8, created_at: u64, parent: u8, label: &str) -> Row {
                 "audio/mpeg",
                 "900",
             ],
-            vec!["e", &hex(parent, 64), "", "attach", label],
+            vec!["e", &hex(parent, 64), "", "attach"],
         ],
         "This is the narrated branch body.",
     )

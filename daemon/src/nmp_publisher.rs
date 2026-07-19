@@ -271,6 +271,7 @@ mod tests {
             },
             attachments: Vec::new(),
             questions: Vec::new(),
+        attach: None,
         }
     }
 }

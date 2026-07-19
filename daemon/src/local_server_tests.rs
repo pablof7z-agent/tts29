@@ -131,6 +131,7 @@ fn request(agent_nsec: Option<String>) -> LocalPublishRequest {
             body: "Publish this through the daemon.".into(),
             attachments: Vec::new(),
             questions: Vec::new(),
+        attach: None,
         },
         wait_for_answer_seconds: None,
         agent_nsec,

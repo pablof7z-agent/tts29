@@ -156,7 +156,7 @@ enum AttachmentLink {
             let replacement: String
             if let index = attachments.firstIndex(where: { $0.label == match.label }) {
                 replacement = "[\(match.label)](\(attachmentScheme)://a/\(index))"
-            } else if let index = children.firstIndex(where: { $0.attach?.label == match.label }) {
+            } else if let index = children.firstIndex(where: { $0.subject == match.label }) {
                 replacement = "[\(match.label)](\(childScheme)://c/\(index))"
             } else {
                 return current

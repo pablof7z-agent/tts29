@@ -74,12 +74,11 @@ pub struct ReactionSummary {
     pub authors: Vec<String>,
 }
 
-/// Links a narrated child item to the parent that references it. The label is
-/// the exact visible text of the parent's inline `[label](attachment:)` link.
+/// Links a narrated child item to the parent that references it. The parent's
+/// inline `[label](attachment:)` is matched against this child's title.
 #[derive(Clone, Debug, Deserialize, JsonSchema, PartialEq, Serialize)]
 pub struct AttachLink {
     pub parent_id: String,
-    pub label: String,
 }
 
 #[derive(Clone, Debug, Deserialize, JsonSchema, PartialEq, Serialize)]

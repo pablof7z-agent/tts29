@@ -156,20 +156,17 @@ public struct Acknowledgement: Codable, Hashable, Sendable {
     }
 }
 
-/// Links a narrated child item to the parent that references it; the label is
-/// the parent's inline `[label](attachment:)` text.
+/// Links a narrated child item to the parent that references it. The parent's
+/// inline `[label](attachment:)` is matched against this child's `subject`.
 public struct AttachLink: Codable, Hashable, Sendable {
     public let parentId: String
-    public let label: String
 
     enum CodingKeys: String, CodingKey {
-        case label
         case parentId = "parent_id"
     }
 
-    public init(parentId: String, label: String) {
+    public init(parentId: String) {
         self.parentId = parentId
-        self.label = label
     }
 }
 

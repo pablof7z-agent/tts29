@@ -68,7 +68,7 @@ struct NarratedBranchesRail: View {
                                 .font(.title2)
                                 .foregroundStyle(Color.accentColor)
                             VStack(alignment: .leading, spacing: 2) {
-                                Text(child.attach?.label ?? child.subject)
+                                Text(child.subject)
                                     .font(.subheadline.weight(.medium))
                                     .foregroundStyle(.primary)
                                     .lineLimit(1)
@@ -85,7 +85,7 @@ struct NarratedBranchesRail: View {
                         .background(Color.accentColor.opacity(0.10), in: RoundedRectangle(cornerRadius: 14))
                     }
                     .buttonStyle(.plain)
-                    .accessibilityLabel("Play narrated branch \(child.attach?.label ?? child.subject)")
+                    .accessibilityLabel("Play narrated branch \(child.subject)")
                 }
             }
             .padding(.horizontal, 20)

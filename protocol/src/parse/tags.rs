@@ -55,17 +55,15 @@ pub fn attach_link(row: &Row) -> Option<Option<AttachLink>> {
     match matches.as_slice() {
         [] => Some(None),
         [value] => {
-            let valid = value.len() == 5
+            let valid = value.len() == 4
                 && value[2].is_empty()
                 && value[3] == "attach"
                 && is_lower_hex(&value[1], 64);
             if !valid {
                 return None;
             }
-            let label = bounded(&value[4], 120)?;
             Some(Some(AttachLink {
                 parent_id: value[1].clone(),
-                label,
             }))
         }
         _ => None,
