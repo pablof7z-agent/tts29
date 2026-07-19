@@ -36,10 +36,11 @@ pub use runner::{
     ArtifactUploader, AuthorizationStep, ProducerError, ProducerRunner, Publisher, Synthesizer,
 };
 #[cfg(unix)]
-pub use tts29_producer_api::{submit_local, submit_local_with_timeout};
+pub use tts29_producer_api::{submit_local, submit_local_tree, submit_local_with_timeout};
 pub use tts29_producer_api::{
     AnswerWaitResult, LocalPublishRequest, LocalPublishResponse, LocalRequestError,
-    ProducerRequest, LOCAL_PROTOCOL_VERSION, MAX_ANSWER_WAIT_SECONDS, MAX_LOCAL_FRAME_BYTES,
+    LocalTreeRequest, ProducerRequest, SpokenTree, TreeAttachment, LOCAL_PROTOCOL_VERSION,
+    MAX_ANSWER_WAIT_SECONDS, MAX_LOCAL_FRAME_BYTES,
 };
 
 #[cfg(test)]

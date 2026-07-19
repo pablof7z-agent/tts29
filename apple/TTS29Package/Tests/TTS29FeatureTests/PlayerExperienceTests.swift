@@ -162,6 +162,28 @@ import Testing
 }
 
 @MainActor
+@Test func resumesAnItemWhereItWasLeft() {
+    let backend = TransportFake()
+    let playback = PlaybackController(backend: backend)
+    let first = SpokenItem(id: "a", author: "a", createdAt: 2, subject: "A", summary: "", body: "b", audioURL: "https://cdn.example/a.mp3")
+    let second = SpokenItem(id: "b", author: "a", createdAt: 1, subject: "B", summary: "", body: "b", audioURL: "https://cdn.example/b.mp3")
+    playback.synchronize(with: [first, second])
+
+    playback.toggle(first)
+    backend.emit(.ready(duration: 100))
+    backend.emit(.progress(current: 50, duration: 100))
+    // Leaving A for B remembers A's offset.
+    playback.toggle(second)
+    backend.emit(.ready(duration: 80))
+    // Returning to A resumes at the saved offset once it is ready.
+    playback.toggle(first)
+    backend.emit(.ready(duration: 100))
+
+    #expect(backend.lastSeek == 50)
+    #expect(playback.currentTime == 50)
+}
+
+@MainActor
 @Test func completionAutoplaysNextPlayableItem() {
     let backend = TransportFake()
     let playback = PlaybackController(backend: backend)

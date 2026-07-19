@@ -8,7 +8,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use crate::{
-    LocalPublishRequest, LocalPublishResponse, LocalPublishService, MAX_LOCAL_FRAME_BYTES,
+    LocalPublishRequest, LocalPublishResponse, LocalPublishService, LocalTreeRequest,
+    MAX_LOCAL_FRAME_BYTES,
 };
 
 const IO_TIMEOUT: Duration = Duration::from_secs(5);
@@ -124,16 +125,24 @@ fn serve_stream<S: LocalPublishService>(mut stream: UnixStream, service: &mut S)
         Ok(bytes) if bytes.is_empty() => {
             LocalPublishResponse::error("malformed_request", "local request is empty")
         }
-        Ok(bytes) => match serde_json::from_slice::<LocalPublishRequest>(&bytes) {
-            Ok(request) => match request.validate() {
-                Ok(()) => service.publish_local(request),
-                Err(error) => LocalPublishResponse::error(error.code, error.message),
-            },
-            Err(_) => LocalPublishResponse::error(
-                "malformed_request",
-                "local request is not valid protocol JSON",
-            ),
-        },
+        Ok(bytes) => {
+            if let Ok(request) = serde_json::from_slice::<LocalPublishRequest>(&bytes) {
+                match request.validate() {
+                    Ok(()) => service.publish_local(request),
+                    Err(error) => LocalPublishResponse::error(error.code, error.message),
+                }
+            } else if let Ok(tree) = serde_json::from_slice::<LocalTreeRequest>(&bytes) {
+                match tree.validate() {
+                    Ok(()) => service.publish_tree_local(tree),
+                    Err(error) => LocalPublishResponse::error(error.code, error.message),
+                }
+            } else {
+                LocalPublishResponse::error(
+                    "malformed_request",
+                    "local request is not valid protocol JSON",
+                )
+            }
+        }
         Err(error) if error.kind() == io::ErrorKind::InvalidData => {
             LocalPublishResponse::error("request_too_large", error.to_string())
         }

@@ -25,6 +25,16 @@ impl LocalPublishService for CaptureService {
             answer_wait: AnswerWaitResult::NotRequested,
         }
     }
+
+    fn publish_tree_local(&mut self, request: crate::LocalTreeRequest) -> LocalPublishResponse {
+        *self.0.lock().unwrap() = request.agent_nsec;
+        LocalPublishResponse::PublishedTree {
+            version: LOCAL_PROTOCOL_VERSION,
+            request_id: request.tree.request_id,
+            root_event_id: "a".repeat(64),
+            child_event_ids: Vec::new(),
+        }
+    }
 }
 
 #[test]

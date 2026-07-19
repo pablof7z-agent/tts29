@@ -3,7 +3,9 @@ use std::os::unix::net::UnixStream;
 use std::path::Path;
 use std::time::Duration;
 
-use crate::{LocalPublishRequest, LocalPublishResponse, MAX_LOCAL_FRAME_BYTES};
+use serde::Serialize;
+
+use crate::{LocalPublishRequest, LocalPublishResponse, LocalTreeRequest, MAX_LOCAL_FRAME_BYTES};
 
 pub fn submit_local(
     socket_path: impl AsRef<Path>,
@@ -20,9 +22,16 @@ pub fn submit_local_with_timeout(
     submit(socket_path.as_ref(), request, Some(timeout))
 }
 
-fn submit(
+pub fn submit_local_tree(
+    socket_path: impl AsRef<Path>,
+    request: &LocalTreeRequest,
+) -> io::Result<LocalPublishResponse> {
+    submit(socket_path.as_ref(), request, None)
+}
+
+fn submit<T: Serialize>(
     socket_path: &Path,
-    request: &LocalPublishRequest,
+    request: &T,
     timeout: Option<Duration>,
 ) -> io::Result<LocalPublishResponse> {
     let payload = serde_json::to_vec(request).map_err(invalid_data)?;

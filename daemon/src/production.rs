@@ -180,36 +180,58 @@ impl ProductionProducer {
         self.runner.advance(request_id)
     }
 
-    /// Synthesizes, uploads, and publishes a whole spoken tree signed by the
-    /// daemon identity: the root first, then each narrated child linked back to
-    /// its parent event id, depth-first. Every message and file attachment is a
-    /// local path the daemon reads.
+    /// Synthesizes, uploads, and publishes a whole spoken tree: the root first,
+    /// then each narrated child linked back to its parent event id, depth-first.
+    /// Every message and file attachment is a local path the daemon reads. When
+    /// `agent_secret` is set, the whole tree is signed as that agent; otherwise
+    /// the daemon identity signs.
     pub fn publish_tree(
         &mut self,
         tree: SpokenTree,
         agent_name: &str,
+        agent_secret: Option<&str>,
     ) -> Result<TreePublication, ProducerError> {
         if tree.group_id != self.group_id {
             return Err(ProducerError::InvalidRequest("group_id"));
         }
+        let identity =
+            self.identities
+                .request(agent_secret)
+                .map_err(|reason| ProducerError::Capability {
+                    stage: "request_identity",
+                    reason,
+                })?;
+        let author = identity.author_hex();
         let created_at = self.clock.unix_millis() / 1_000;
         let mut children = Vec::new();
-        let root = self.publish_node(
-            tree.request_id.clone(),
-            tree.title,
-            tree.summary.unwrap_or_default(),
-            &tree.message,
-            tree.questions,
-            tree.attachments,
-            None,
-            agent_name,
-            created_at,
-            &mut children,
-        )?;
-        Ok(TreePublication {
-            root_event_id: root,
-            child_event_ids: children,
-        })
+        let result = self
+            .publish_node(
+                tree.request_id.clone(),
+                tree.title,
+                tree.summary.unwrap_or_default(),
+                &tree.message,
+                tree.questions,
+                tree.attachments,
+                None,
+                agent_name,
+                &author,
+                created_at,
+                &mut children,
+            )
+            .map(|root| TreePublication {
+                root_event_id: root,
+                child_event_ids: children,
+            });
+        let cleanup = identity
+            .close()
+            .map_err(|reason| ProducerError::Capability {
+                stage: "request_identity_cleanup",
+                reason,
+            });
+        match (result, cleanup) {
+            (_, Err(error)) => Err(error),
+            (result, Ok(())) => result,
+        }
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -223,6 +245,7 @@ impl ProductionProducer {
         attachments: Vec<TreeAttachment>,
         parent_event_id: Option<String>,
         agent_name: &str,
+        author: &str,
         created_at: u64,
         published_children: &mut Vec<String>,
     ) -> Result<String, ProducerError> {
@@ -264,7 +287,7 @@ impl ProductionProducer {
             questions,
             attach: parent_event_id.map(|parent_id| AttachLink { parent_id }),
         };
-        let job = self.publish_as(request, self.author.clone(), created_at)?;
+        let job = self.publish_as(request, author.to_string(), created_at)?;
         let event_id = job
             .phase
             .event_id()
@@ -286,6 +309,7 @@ impl ProductionProducer {
                 child_attachments,
                 Some(event_id.clone()),
                 agent_name,
+                author,
                 created_at,
                 published_children,
             )?;

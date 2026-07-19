@@ -79,6 +79,12 @@ struct NowPlayingView: View {
         .navigationBarBackButtonHidden(true)
         #endif
         .sheet(item: $previewedAttachment) { AttachmentPreview(attachment: $0) }
+        .onAppear {
+            // Returning from a narrated branch resumes the parent where it was.
+            if !isActive, playback.resumeOffset(for: item) != nil {
+                playback.toggle(item)
+            }
+        }
         .accessibilityIdentifier("tts29.nowplaying")
     }
 

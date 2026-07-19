@@ -54,6 +54,14 @@ public final class PlaybackController {
     private(set) var orderedItems: [SpokenItem] = []
     var selectedAudioURL: String?
     var wantsPlayback = false
+    private var resumePositions: [String: TimeInterval] = [:]
+    private var pendingResume: TimeInterval?
+
+    /// The saved offset to resume an item at, if it was left mid-playback (for
+    /// example a parent left to hear a narrated branch). Device-local.
+    public func resumeOffset(for item: SpokenItem) -> TimeInterval? {
+        resumePositions[item.id]
+    }
 
     public var selectedItemID: String? { selectedItem?.id }
 
@@ -93,6 +101,12 @@ public final class PlaybackController {
             return
         }
         if selectedItemID != item.id || selectedAudioURL != source || phase == .failed {
+            // Remember where we left the previous item so returning to it (e.g.
+            // a parent left to hear a narrated branch) resumes in place.
+            if let previous = selectedItem, previous.id != item.id,
+               currentTime > 0.5, duration > 0, currentTime < duration - 0.5 {
+                resumePositions[previous.id] = currentTime
+            }
             backend.stop()
             selectedItem = item
             selectedAudioURL = source
@@ -101,6 +115,7 @@ public final class PlaybackController {
             failureMessage = nil
             wantsPlayback = true
             phase = .loading
+            pendingResume = resumePositions[item.id]
             rate = rateStore.rate(for: item.agentName)
             backend.setRate(rate)
             backend.load(url)
@@ -170,6 +185,11 @@ public final class PlaybackController {
         case let .ready(duration):
             self.duration = validTime(duration)
             backend.setRate(rate)
+            if let resume = pendingResume, resume > 0, resume < self.duration {
+                currentTime = resume
+                backend.seek(to: resume)
+            }
+            pendingResume = nil
             if wantsPlayback {
                 phase = .playing
             }
@@ -182,6 +202,7 @@ public final class PlaybackController {
             currentTime = duration
             wantsPlayback = false
             phase = .completed
+            if let selectedItemID { resumePositions[selectedItemID] = nil }
             notifyChange()
             autoplayNextIfPossible()
         case .interrupted:

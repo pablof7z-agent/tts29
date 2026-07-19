@@ -4,8 +4,8 @@ use std::io::{self, Read, Write};
 use std::path::PathBuf;
 
 use tts29_daemon::{
-    LocalPublishRequest, LocalPublishResponse, ProducerRequest, LOCAL_PROTOCOL_VERSION,
-    MAX_ANSWER_WAIT_SECONDS, MAX_LOCAL_FRAME_BYTES,
+    LocalPublishRequest, LocalPublishResponse, LocalTreeRequest, ProducerRequest, SpokenTree,
+    LOCAL_PROTOCOL_VERSION, MAX_ANSWER_WAIT_SECONDS, MAX_LOCAL_FRAME_BYTES,
 };
 
 fn main() {
@@ -17,20 +17,37 @@ fn main() {
 
 fn run() -> Result<(), String> {
     let command = parse_arguments()?;
-    let request: ProducerRequest = serde_json::from_slice(&read_request(&command.request_path)?)
-        .map_err(|error| format!("producer request is invalid JSON: {error}"))?;
+    let bytes = read_request(&command.request_path)?;
     let agent_nsec = optional_env("AGENT_NSEC")?;
-    let local = LocalPublishRequest {
-        version: LOCAL_PROTOCOL_VERSION,
-        request,
-        wait_for_answer_seconds: command.wait_for_answer_seconds,
-        agent_nsec,
+    let response = if command.tree {
+        let tree: SpokenTree = serde_json::from_slice(&bytes)
+            .map_err(|error| format!("spoken tree is invalid JSON: {error}"))?;
+        let local = LocalTreeRequest {
+            version: LOCAL_PROTOCOL_VERSION,
+            tree,
+            agent_id: command.agent_id,
+            agent_nsec,
+        };
+        local
+            .validate()
+            .map_err(|error| format!("{}: {}", error.code, error.message))?;
+        tts29_daemon::submit_local_tree(command.socket_path, &local)
+            .map_err(|error| format!("daemon request failed: {error}"))?
+    } else {
+        let request: ProducerRequest = serde_json::from_slice(&bytes)
+            .map_err(|error| format!("producer request is invalid JSON: {error}"))?;
+        let local = LocalPublishRequest {
+            version: LOCAL_PROTOCOL_VERSION,
+            request,
+            wait_for_answer_seconds: command.wait_for_answer_seconds,
+            agent_nsec,
+        };
+        local
+            .validate()
+            .map_err(|error| format!("{}: {}", error.code, error.message))?;
+        tts29_daemon::submit_local(command.socket_path, &local)
+            .map_err(|error| format!("daemon request failed: {error}"))?
     };
-    local
-        .validate()
-        .map_err(|error| format!("{}: {}", error.code, error.message))?;
-    let response = tts29_daemon::submit_local(command.socket_path, &local)
-        .map_err(|error| format!("daemon request failed: {error}"))?;
     let failed = matches!(response, LocalPublishResponse::Error { .. });
     let stdout = io::stdout();
     let mut output = stdout.lock();
@@ -53,12 +70,16 @@ struct Command {
     socket_path: PathBuf,
     request_path: Option<PathBuf>,
     wait_for_answer_seconds: Option<u64>,
+    tree: bool,
+    agent_id: Option<String>,
 }
 
 fn parse_arguments() -> Result<Command, String> {
     let mut socket_path = std::env::var_os("TTS29_SOCKET").map(PathBuf::from);
     let mut request_path = None;
     let mut wait_for_answer_seconds = None;
+    let mut tree = false;
+    let mut agent_id = None;
     let mut socket_seen = false;
     let mut request_seen = false;
     let mut arguments = std::env::args_os().skip(1);
@@ -67,6 +88,18 @@ fn parse_arguments() -> Result<Command, String> {
             Some("--socket") if !socket_seen => {
                 socket_path = Some(required_value(&mut arguments, "--socket")?.into());
                 socket_seen = true;
+            }
+            Some("--tree") if !tree => {
+                tree = true;
+            }
+            Some("--agent-id") if agent_id.is_none() => {
+                let value = required_value(&mut arguments, "--agent-id")?;
+                agent_id = Some(
+                    value
+                        .to_str()
+                        .ok_or_else(|| "--agent-id must be UTF-8".to_string())?
+                        .to_string(),
+                );
             }
             Some("--request") if !request_seen => {
                 let value = required_value(&mut arguments, "--request")?;
@@ -93,7 +126,8 @@ fn parse_arguments() -> Result<Command, String> {
             }
             Some("--help" | "-h") => {
                 println!(
-                    "Usage: tts29 --socket <path> [--request <file|->] [--wait-seconds <1-300>]"
+                    "Usage: tts29 --socket <path> [--request <file|->] \
+                     [--wait-seconds <1-300>] [--tree] [--agent-id <name>]"
                 );
                 std::process::exit(0);
             }
@@ -102,10 +136,15 @@ fn parse_arguments() -> Result<Command, String> {
     }
     let socket_path = socket_path
         .ok_or_else(|| "a socket path is required through --socket or TTS29_SOCKET".to_string())?;
+    if !tree && agent_id.is_some() {
+        return Err("--agent-id is only valid with --tree".into());
+    }
     Ok(Command {
         socket_path,
         request_path,
         wait_for_answer_seconds,
+        tree,
+        agent_id,
     })
 }
 

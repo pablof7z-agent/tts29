@@ -11,9 +11,9 @@ use crate::live_network::{
     SourceEvidence,
 };
 use crate::{
-    load_daemon_config, serve_one, submit_local_with_timeout, AnswerWaitResult,
-    LocalPublishRequest, LocalPublishResponse, PrivateUnixListener, ProducerRequest,
-    ProductionProducer, LOCAL_PROTOCOL_VERSION,
+    load_daemon_config, serve_one, submit_local_tree, submit_local_with_timeout, AnswerWaitResult,
+    LocalPublishRequest, LocalPublishResponse, LocalTreeRequest, PrivateUnixListener,
+    ProducerRequest, ProductionProducer, LOCAL_PROTOCOL_VERSION,
 };
 
 const PRODUCER_TIMEOUT: Duration = Duration::from_secs(240);
@@ -182,16 +182,45 @@ pub fn run_tree_relay_smoke(path: impl AsRef<Path>) -> Result<TreeSmokeEvidence,
         }],
     };
 
+    // Drive the full CLI → socket → daemon path, signing as a disposable agent.
+    let request_secret = disposable_secret();
+    let local = LocalTreeRequest {
+        version: LOCAL_PROTOCOL_VERSION,
+        tree,
+        agent_id: Some("indigo-claude".into()),
+        agent_nsec: Some(request_secret),
+    };
     let mut producer = ProductionProducer::open(loaded.production)?;
-    let publication = producer.publish_tree(tree, "indigo-claude");
+    let listener = PrivateUnixListener::bind(&loaded.socket_path)
+        .map_err(|error| format!("tree daemon socket could not bind: {error}"))?;
+    let socket_path = listener.path().to_path_buf();
+    let client = std::thread::spawn(move || submit_local_tree(socket_path, &local));
+    let server_result = serve_one(&listener, &mut producer);
     producer.shutdown();
-    let publication = publication.map_err(|error| format!("tree publication failed: {error}"))?;
+    server_result.map_err(|error| format!("tree daemon request failed: {error}"))?;
+    let response = client
+        .join()
+        .map_err(|_| "tree daemon client panicked".to_string())?
+        .map_err(|error| format!("tree daemon client failed: {error}"))?;
     let _ = std::fs::remove_dir_all(&dir);
+    let (root_event_id, child_event_ids) = match response {
+        LocalPublishResponse::PublishedTree {
+            root_event_id,
+            child_event_ids,
+            ..
+        } => (root_event_id, child_event_ids),
+        LocalPublishResponse::Error { code, message, .. } => {
+            return Err(format!("tree daemon refused publication ({code}): {message}"));
+        }
+        LocalPublishResponse::Published { .. } => {
+            return Err("tree daemon returned a single-item response for a tree".into());
+        }
+    };
     Ok(TreeSmokeEvidence {
         relay,
         group_id,
-        root_event_id: publication.root_event_id,
-        child_event_ids: publication.child_event_ids,
+        root_event_id,
+        child_event_ids,
     })
 }
 
@@ -211,6 +240,9 @@ fn published(response: LocalPublishResponse) -> Result<(u64, String), String> {
         } => Ok((receipt_id, event_id)),
         LocalPublishResponse::Published { .. } => {
             Err("live daemon returned an unexpected answer-wait state".into())
+        }
+        LocalPublishResponse::PublishedTree { .. } => {
+            Err("live daemon returned a tree response for a single item".into())
         }
         LocalPublishResponse::Error { code, message, .. } => Err(format!(
             "live daemon refused publication ({code}): {message}"

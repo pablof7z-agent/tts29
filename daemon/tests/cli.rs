@@ -7,7 +7,7 @@ use std::sync::{Arc, Mutex};
 use tempfile::TempDir;
 use tts29_daemon::{
     serve_one, AnswerWaitResult, LocalPublishRequest, LocalPublishResponse, LocalPublishService,
-    PrivateUnixListener, ProducerRequest, LOCAL_PROTOCOL_VERSION,
+    LocalTreeRequest, PrivateUnixListener, ProducerRequest, LOCAL_PROTOCOL_VERSION,
 };
 
 struct CaptureService(Arc<Mutex<Option<String>>>);
@@ -24,10 +24,24 @@ impl LocalPublishService for CaptureService {
             answer_wait: AnswerWaitResult::NotRequested,
         }
     }
+
+    fn publish_tree_local(&mut self, request: LocalTreeRequest) -> LocalPublishResponse {
+        *self.0.lock().unwrap() = request.agent_nsec;
+        LocalPublishResponse::PublishedTree {
+            version: LOCAL_PROTOCOL_VERSION,
+            request_id: request.tree.request_id,
+            root_event_id: "b".repeat(64),
+            child_event_ids: Vec::new(),
+        }
+    }
 }
 
 impl LocalPublishService for ErrorService {
     fn publish_local(&mut self, _request: LocalPublishRequest) -> LocalPublishResponse {
+        LocalPublishResponse::error("request_conflict", "request id was reused")
+    }
+
+    fn publish_tree_local(&mut self, _request: LocalTreeRequest) -> LocalPublishResponse {
         LocalPublishResponse::error("request_conflict", "request id was reused")
     }
 }

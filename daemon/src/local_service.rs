@@ -2,11 +2,13 @@ use std::time::Duration;
 
 use crate::{
     AnswerWaitCancel, AnswerWaitError, AnswerWaitResult, JobPhase, LocalPublishRequest,
-    LocalPublishResponse, ProducerError, ProductionProducer, LOCAL_PROTOCOL_VERSION,
+    LocalPublishResponse, LocalTreeRequest, ProducerError, ProductionProducer,
+    LOCAL_PROTOCOL_VERSION,
 };
 
 pub trait LocalPublishService {
     fn publish_local(&mut self, request: LocalPublishRequest) -> LocalPublishResponse;
+    fn publish_tree_local(&mut self, request: LocalTreeRequest) -> LocalPublishResponse;
 }
 
 impl LocalPublishService for ProductionProducer {
@@ -55,6 +57,29 @@ impl LocalPublishService for ProductionProducer {
             receipt_id: *receipt_id,
             event_id: event_id.clone(),
             answer_wait,
+        }
+    }
+
+    fn publish_tree_local(&mut self, input: LocalTreeRequest) -> LocalPublishResponse {
+        if let Err(error) = input.validate() {
+            return LocalPublishResponse::error(error.code, error.message);
+        }
+        let LocalTreeRequest {
+            tree,
+            agent_id,
+            agent_nsec,
+            ..
+        } = input;
+        let request_id = tree.request_id.clone();
+        let agent_name = agent_id.unwrap_or_default();
+        match self.publish_tree(tree, &agent_name, agent_nsec.as_deref()) {
+            Ok(publication) => LocalPublishResponse::PublishedTree {
+                version: LOCAL_PROTOCOL_VERSION,
+                request_id,
+                root_event_id: publication.root_event_id,
+                child_event_ids: publication.child_event_ids,
+            },
+            Err(error) => producer_error(error),
         }
     }
 }
