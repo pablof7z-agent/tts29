@@ -1,0 +1,140 @@
+#!/usr/bin/env bash
+#
+# Thin launcher for the TTS29 producer. Ensures the resident `tts29d` daemon is
+# running, then forwards a spoken update to the `tts29` client. The daemon owns
+# NMP, Kokoro, Blossom, and the group admin identity; this script only spawns it
+# and passes the caller's AGENT_NSEC through, so the daemon repairs that agent's
+# membership and publishes as it.
+#
+# Config:   $TTS29_CONFIG or ~/.config/tts29/daemon.json  (Kokoro/Blossom/group/socket)
+# Secrets:  $TTS29_ENV_FILE or ~/.config/tts29/env        (sourced; TTS29_DAEMON_NSEC, Kokoro creds)
+# Identity: AGENT_NSEC in the environment signs the update as that agent.
+#
+# Usage:
+#   scripts/tts --subject "<title>" --summary "<preview>" --message "<text|@file>" [--agent-id <name>]
+#   scripts/tts --request <file|->          # raw ProducerRequest JSON
+#   scripts/tts --tree <file|-> [--agent-id <name>]   # raw SpokenTree JSON
+
+set -euo pipefail
+
+repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+config_home=${XDG_CONFIG_HOME:-$HOME/.config}
+config=${TTS29_CONFIG:-$config_home/tts29/daemon.json}
+env_file=${TTS29_ENV_FILE:-$config_home/tts29/env}
+
+die() { echo "tts: $*" >&2; exit 1; }
+
+command -v jq >/dev/null || die "jq is required"
+[ -f "$config" ] || die "no daemon config at $config (copy daemon/example-config.json and set TTS29_CONFIG)"
+
+# Secrets never live in the config; source them from a separate env file if present.
+if [ -f "$env_file" ]; then
+  set -a; # shellcheck disable=SC1090
+  . "$env_file"; set +a
+fi
+
+socket=$(jq -r '.socket_path' "$config")
+[ "$socket" != "null" ] && [ -n "$socket" ] || die "config is missing socket_path"
+config_group=$(jq -r '.group_id // empty' "$config")
+config_voice=$(jq -r '.default_voice // "af_heart"' "$config")
+
+# --- locate binaries -------------------------------------------------------
+find_bin() {
+  local name=$1 override=$2
+  if [ -n "$override" ]; then echo "$override"; return; fi
+  if command -v "$name" >/dev/null; then command -v "$name"; return; fi
+  if [ -x "$repo_root/daemon/target/release/$name" ]; then echo "$repo_root/daemon/target/release/$name"; return; fi
+  echo ""
+}
+tts29d_bin=$(find_bin tts29d "${TTS29D_BIN:-}")
+tts29_bin=$(find_bin tts29 "${TTS29_BIN:-}")
+if [ -z "$tts29d_bin" ] || [ -z "$tts29_bin" ]; then
+  echo "tts: building tts29d and tts29 (first run)…" >&2
+  cargo build --release --quiet --manifest-path "$repo_root/daemon/Cargo.toml" --bin tts29d --bin tts29
+  tts29d_bin="$repo_root/daemon/target/release/tts29d"
+  tts29_bin="$repo_root/daemon/target/release/tts29"
+fi
+
+# --- ensure the daemon is running ------------------------------------------
+socket_alive() {
+  python3 - "$1" <<'PY' 2>/dev/null
+import socket, sys
+s = socket.socket(socket.AF_UNIX)
+s.settimeout(1)
+try:
+    s.connect(sys.argv[1]); s.close()
+except OSError:
+    sys.exit(1)
+PY
+}
+
+if ! socket_alive "$socket"; then
+  [ -n "${TTS29_DAEMON_NSEC:-}" ] || die "TTS29_DAEMON_NSEC is not set (put it in $env_file) — cannot start the daemon"
+  daemon_log=${TTS29_LOG:-$(dirname "$socket")/tts29d.log}
+  mkdir -p "$(dirname "$daemon_log")"
+  echo "tts: starting tts29d…" >&2
+  nohup "$tts29d_bin" --config "$config" >>"$daemon_log" 2>&1 &
+  disown || true
+  for _ in $(seq 1 60); do
+    socket_alive "$socket" && break
+    sleep 0.5
+  done
+  socket_alive "$socket" || die "daemon did not become ready; see $daemon_log"
+fi
+
+export TTS29_SOCKET="$socket"
+
+# --- parse arguments -------------------------------------------------------
+mode=message
+request_file=""
+tree_file=""
+subject=""; summary=""; message=""; agent_id=""; voice="$config_voice"
+group="$config_group"; request_id=""; wait_seconds=""
+
+read_arg() { [ $# -ge 2 ] || die "$1 requires a value"; }
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --request) read_arg "$@"; mode=request; request_file=$2; shift 2;;
+    --tree)    read_arg "$@"; mode=tree; tree_file=$2; shift 2;;
+    --subject) read_arg "$@"; subject=$2; shift 2;;
+    --summary) read_arg "$@"; summary=$2; shift 2;;
+    --message) read_arg "$@"; message=$2; shift 2;;
+    --agent-id) read_arg "$@"; agent_id=$2; shift 2;;
+    --voice)   read_arg "$@"; voice=$2; shift 2;;
+    --group)   read_arg "$@"; group=$2; shift 2;;
+    --request-id) read_arg "$@"; request_id=$2; shift 2;;
+    --wait-seconds) read_arg "$@"; wait_seconds=$2; shift 2;;
+    -h|--help) sed -n '2,25p' "$0"; exit 0;;
+    *) die "unknown argument: $1 (see --help)";;
+  esac
+done
+
+read_source() { # "$file" -> contents from file, - (stdin), or the literal @path form
+  if [ "$1" = "-" ]; then cat
+  elif [ "${1#@}" != "$1" ]; then cat "${1#@}"
+  else printf '%s' "$1"
+  fi
+}
+
+# --- dispatch --------------------------------------------------------------
+case "$mode" in
+  tree)
+    read_source "$tree_file" | "$tts29_bin" --tree ${agent_id:+--agent-id "$agent_id"}
+    ;;
+  request)
+    read_source "$request_file" | "$tts29_bin"
+    ;;
+  message)
+    [ -n "$message" ] || die "--message is required (or use --request/--tree)"
+    [ -n "$subject" ] || die "--subject is required"
+    [ -n "$group" ] || die "no group configured; pass --group or set group_id in the config"
+    body=$(read_source "$message")
+    request_id=${request_id:-tts-$(date -u +%Y%m%d%H%M%S)-$$}
+    jq -n \
+      --arg request_id "$request_id" --arg group "$group" --arg voice "$voice" \
+      --arg agent "$agent_id" --arg subject "$subject" --arg summary "$summary" --arg body "$body" \
+      '{request_id:$request_id, group_id:$group, voice:$voice, agent_name:$agent,
+        subject:$subject, summary:$summary, body:$body, attachments:[], questions:[]}' \
+      | "$tts29_bin" ${wait_seconds:+--wait-seconds "$wait_seconds"}
+    ;;
+esac
