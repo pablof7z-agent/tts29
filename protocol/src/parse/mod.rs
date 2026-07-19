@@ -6,7 +6,8 @@ use nmp::Row;
 
 use crate::{Acknowledgement, AcknowledgementState, AnswerBundle, QuestionAnswer, SpokenItem};
 use tags::{
-    artifact, bounded, group_matches, identifier, marker, optional, root_event, rows, unique,
+    artifact, attach_link, bounded, group_matches, identifier, marker, optional, root_event, rows,
+    unique,
 };
 
 pub const VERSION: &str = "1";
@@ -68,14 +69,18 @@ fn parse_item(row: &Row) -> Option<SpokenItem> {
     if attachments.iter().any(|value| value.label.is_none()) {
         return None;
     }
+    let attach = attach_link(row)?;
 
     Some(SpokenItem {
         id: row.event.id.to_hex(),
         author: row.event.pubkey.to_hex(),
         created_at: row.event.created_at.as_secs(),
-        agent_name: unique(row, "agent", 80)?,
+        // Attribution is optional: with no `agent` tag the signer's pubkey is
+        // the identity. Narrated children carry only a title + message, so
+        // summary is optional too (duplicates still reject).
+        agent_name: optional(row, "agent", 80)?.unwrap_or_default(),
         subject: unique(row, "title", 80)?,
-        summary: unique(row, "summary", 280)?,
+        summary: optional(row, "summary", 280)?.unwrap_or_default(),
         body: bounded(&row.event.content, 40_000)?,
         audio_url: Some(audio.url.clone()),
         audio,
@@ -84,6 +89,8 @@ fn parse_item(row: &Row) -> Option<SpokenItem> {
         answer: None,
         acknowledgement: None,
         reactions: Vec::new(),
+        attach,
+        children: Vec::new(),
     })
 }
 

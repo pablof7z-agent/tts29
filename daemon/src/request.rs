@@ -18,6 +18,7 @@ pub(crate) fn frozen_item(job: &JobRecord, audio: DurableArtifact) -> FrozenSpok
         audio,
         attachments: job.request.attachments.clone(),
         questions: job.request.questions.clone(),
+        attach: job.request.attach.clone(),
     }
 }
 

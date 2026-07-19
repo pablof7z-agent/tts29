@@ -155,6 +155,7 @@ fn request(id: &str) -> ProducerRequest {
         body: "The producer can recover every completed stage.".into(),
         attachments: Vec::new(),
         questions: Vec::new(),
+    attach: None,
     }
 }
 

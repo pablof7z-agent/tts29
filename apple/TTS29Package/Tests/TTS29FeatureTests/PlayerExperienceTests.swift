@@ -69,6 +69,57 @@ import Testing
     #expect(mid >= first! && mid <= last!)
 }
 
+@Test func decodesNestedNarratedChildren() throws {
+    let json = """
+    {
+      "phase": "listening", "relay": "r", "group_id": "g",
+      "items": [{
+        "id": "parent", "author": "a", "created_at": 100, "agent_name": "indigo",
+        "subject": "Proposal", "summary": "s",
+        "body": "Open the [Detailed explanation](attachment:).",
+        "audio_url": "https://cdn/p.mp3",
+        "children": [{
+          "id": "child", "author": "a", "created_at": 101, "agent_name": "indigo",
+          "subject": "Detailed explanation", "summary": "",
+          "body": "Deeper.", "audio_url": "https://cdn/c.mp3",
+          "attach": {"parent_id": "parent"}
+        }]
+      }],
+      "evidence": {"source_count": 1, "shortfall_count": 0}, "error": null
+    }
+    """
+    let snapshot = try JSONDecoder().decode(QueueSnapshot.self, from: Data(json.utf8))
+    let parent = try #require(snapshot.items.first)
+    #expect(parent.children.count == 1)
+    let child = try #require(parent.child(labeled: "Detailed explanation"))
+    #expect(child.attach?.parentId == "parent")
+    #expect(child.subject == "Detailed explanation")
+}
+
+@Test func inlineLinkResolvesToAttachmentOrChild() {
+    let image = DurableArtifact(url: "https://cdn/x.png", sha256: "ab", mediaType: "image/png",
+                                byteCount: 10, label: "Diagram")
+    let child = SpokenItem(id: "c", author: "a", createdAt: 1, subject: "More", summary: "",
+                           body: "b", audioURL: "https://cdn/c.mp3",
+                           attach: AttachLink(parentId: "p"))
+    let text = "See [Diagram](attachment:) and [More](attachment:) and [Missing](attachment:)."
+    let rewritten = AttachmentLink.rewrite(text, attachments: [image], children: [child])
+    #expect(rewritten.contains("ttsattach://a/0"))
+    #expect(rewritten.contains("ttschild://c/0"))
+    // Unmatched labels stay plain (pending child not yet arrived).
+    #expect(rewritten.contains("[Missing](attachment:)"))
+}
+
+@Test func focusAdvancesBySentenceWithinAParagraph() {
+    let document = TranscriptDocument("First sentence here. Second sentence follows.")
+    let early = document.focus(at: 0.05)
+    let late = document.focus(at: 0.95)
+    // One paragraph block, two sentences: the highlight moves between them.
+    #expect(early?.block == late?.block)
+    #expect(early?.sentence == 0)
+    #expect(late?.sentence == 1)
+}
+
 @MainActor
 @Test func rateStoreRemembersPerAgent() {
     let suite = "tts29.rate.\(UUID().uuidString)"
@@ -108,6 +159,28 @@ import Testing
     #expect(playback.rate == 1.2)
     #expect(backend.lastRate == 1.2)
     #expect(store.rate(for: "indigo") == 1.2)
+}
+
+@MainActor
+@Test func resumesAnItemWhereItWasLeft() {
+    let backend = TransportFake()
+    let playback = PlaybackController(backend: backend)
+    let first = SpokenItem(id: "a", author: "a", createdAt: 2, subject: "A", summary: "", body: "b", audioURL: "https://cdn.example/a.mp3")
+    let second = SpokenItem(id: "b", author: "a", createdAt: 1, subject: "B", summary: "", body: "b", audioURL: "https://cdn.example/b.mp3")
+    playback.synchronize(with: [first, second])
+
+    playback.toggle(first)
+    backend.emit(.ready(duration: 100))
+    backend.emit(.progress(current: 50, duration: 100))
+    // Leaving A for B remembers A's offset.
+    playback.toggle(second)
+    backend.emit(.ready(duration: 80))
+    // Returning to A resumes at the saved offset once it is ready.
+    playback.toggle(first)
+    backend.emit(.ready(duration: 100))
+
+    #expect(backend.lastSeek == 50)
+    #expect(playback.currentTime == 50)
 }
 
 @MainActor

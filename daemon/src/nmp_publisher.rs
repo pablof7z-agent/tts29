@@ -20,6 +20,10 @@ pub struct NmpPublisher {
     group_id: String,
     admin_author: PublicKey,
     receipt_timeout: Duration,
+    /// Authors this publisher has already established membership for in this
+    /// session, mapped to their membership event id. Prevents re-adding the
+    /// same agent for every node of a tree before the relay view catches up.
+    authorized_members: BTreeMap<String, String>,
 }
 
 impl NmpPublisher {
@@ -36,6 +40,7 @@ impl NmpPublisher {
             group_id,
             admin_author,
             receipt_timeout,
+            authorized_members: BTreeMap::new(),
         }
     }
 
@@ -51,9 +56,16 @@ impl Publisher for NmpPublisher {
         author: &str,
         created_at: u64,
     ) -> Result<AuthorizationStep, String> {
+        if let Some(event_id) = self.authorized_members.get(author) {
+            return Ok(AuthorizationStep::Authorized {
+                event_id: event_id.clone(),
+            });
+        }
         let member = PublicKey::parse(author)
             .map_err(|_| "frozen spoken-item author is not a public key".to_string())?;
         if let Some(event_id) = self.current_membership(&member)? {
+            self.authorized_members
+                .insert(author.to_string(), event_id.clone());
             return Ok(AuthorizationStep::Authorized { event_id });
         }
 
@@ -89,8 +101,24 @@ impl Publisher for NmpPublisher {
         })
     }
 
-    fn resume_authorization(&mut self, receipt_id: u64, _author: &str) -> Result<String, String> {
-        self.await_host_ack(receipt_id)
+    fn resume_authorization(&mut self, receipt_id: u64, author: &str) -> Result<String, String> {
+        match self.await_host_ack(receipt_id) {
+            Ok(event_id) => {
+                self.authorized_members
+                    .insert(author.to_string(), event_id.clone());
+                Ok(event_id)
+            }
+            // A duplicate add means the author is already authorized; reuse the
+            // membership event id cached from the first successful add.
+            Err(error)
+                if error.contains("members already") || error.contains("already a member") =>
+            {
+                self.authorized_members.get(author).cloned().ok_or_else(|| {
+                    format!("membership add was rejected as duplicate but no prior membership is known: {error}")
+                })
+            }
+            Err(error) => Err(error),
+        }
     }
 
     fn accept(&mut self, item: &FrozenSpokenItem) -> Result<u64, String> {
@@ -271,6 +299,7 @@ mod tests {
             },
             attachments: Vec::new(),
             questions: Vec::new(),
+        attach: None,
         }
     }
 }

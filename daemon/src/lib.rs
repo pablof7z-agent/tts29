@@ -23,7 +23,7 @@ pub use daemon_config::{load_daemon_config, LoadedDaemonConfig};
 pub use journal::{FileJobJournal, InsertOutcome, JobJournal, JournalError};
 pub use kokoro::{KokoroAuth, KokoroConfig, KokoroSynthesizer};
 #[cfg(unix)]
-pub use live_smoke::{run_live_relay_smoke, LiveRelayEvidence};
+pub use live_smoke::{run_live_relay_smoke, run_tree_relay_smoke, LiveRelayEvidence, TreeSmokeEvidence};
 #[cfg(unix)]
 pub use local_server::{
     serve_forever, serve_one, serve_until_shutdown, LocalServerShutdown, PrivateUnixListener,
@@ -31,15 +31,16 @@ pub use local_server::{
 pub use local_service::LocalPublishService;
 pub use model::{JobPhase, JobRecord, LocalAudioArtifact, MembershipEvidence};
 pub use nmp_publisher::NmpPublisher;
-pub use production::{ProductionConfig, ProductionProducer};
+pub use production::{ProductionConfig, ProductionProducer, TreePublication};
 pub use runner::{
     ArtifactUploader, AuthorizationStep, ProducerError, ProducerRunner, Publisher, Synthesizer,
 };
 #[cfg(unix)]
-pub use tts29_producer_api::{submit_local, submit_local_with_timeout};
+pub use tts29_producer_api::{submit_local, submit_local_tree, submit_local_with_timeout};
 pub use tts29_producer_api::{
     AnswerWaitResult, LocalPublishRequest, LocalPublishResponse, LocalRequestError,
-    ProducerRequest, LOCAL_PROTOCOL_VERSION, MAX_ANSWER_WAIT_SECONDS, MAX_LOCAL_FRAME_BYTES,
+    LocalTreeRequest, ProducerRequest, SpokenTree, TreeAttachment, LOCAL_PROTOCOL_VERSION,
+    MAX_ANSWER_WAIT_SECONDS, MAX_LOCAL_FRAME_BYTES,
 };
 
 #[cfg(test)]

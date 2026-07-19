@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use nmp::Row;
 
-use crate::{DurableArtifact, Question, QuestionKind, QuestionOption};
+use crate::{AttachLink, DurableArtifact, Question, QuestionKind, QuestionOption};
 
 const MAX_ARTIFACT_BYTES: u64 = 250 * 1024 * 1024;
 
@@ -42,6 +42,32 @@ pub fn marker(row: &Row) -> Option<(String, String)> {
 
 pub fn group_matches(row: &Row, group_id: &str) -> bool {
     rows(row, "h") == [vec!["h".to_string(), group_id.to_string()]]
+}
+
+/// Reads the optional narrated-attachment parent link on an item.
+///
+/// Returns `Some(None)` for a normal top-level item (no `e` tag),
+/// `Some(Some(link))` for a well-formed `["e", <parent>, "", "attach", <label>]`,
+/// and `None` when an item carries a malformed or unexpected `e` tag (which
+/// invalidates the whole item).
+pub fn attach_link(row: &Row) -> Option<Option<AttachLink>> {
+    let matches = rows(row, "e");
+    match matches.as_slice() {
+        [] => Some(None),
+        [value] => {
+            let valid = value.len() == 4
+                && value[2].is_empty()
+                && value[3] == "attach"
+                && is_lower_hex(&value[1], 64);
+            if !valid {
+                return None;
+            }
+            Some(Some(AttachLink {
+                parent_id: value[1].clone(),
+            }))
+        }
+        _ => None,
+    }
 }
 
 pub fn root_event(row: &Row) -> Option<String> {

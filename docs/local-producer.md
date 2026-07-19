@@ -76,6 +76,40 @@ make one bounded NMP answer observation after publication. Timeout is returned
 alongside the durable publication evidence; it does not undo publication or
 make the caller own the spoken item.
 
+## Submit a spoken tree
+
+`--tree` submits a `SpokenTree` instead of a single item: a root message plus
+file and narrated attachments, every payload a local file path. The daemon
+reads each file, synthesizes and uploads audio, uploads file attachments, and
+publishes the root first and each narrated child after it, linked by
+`["e", <parent-event-id>, "", "attach"]`. Attribution comes from `--agent-id`
+(optional; absent means the signer's pubkey is the identity), and voice is a
+daemon-config concern — the caller never chooses it.
+
+```bash
+cargo run --manifest-path daemon/Cargo.toml --bin tts29 -- \
+  --socket daemon/state/runtime/daemon.sock --tree --agent-id "indigo-claude" <<'JSON'
+{
+  "request_id": "agent-proposal-7",
+  "group_id": "tts",
+  "title": "Proposal",
+  "summary": "A proposal with a narrated explanation branch.",
+  "message": "/tmp/proposal.md",
+  "attachments": [
+    { "label": "Pipeline diagram", "file": "/tmp/diagram.png" },
+    { "label": "Detailed explanation", "message": "/tmp/explanation.md",
+      "attachments": [ { "label": "Further note", "message": "/tmp/note.md" } ] }
+  ]
+}
+JSON
+```
+
+An attachment is a file when it has `file` and a narrated child when it has
+`message`; a child's `label` is also its title, matched against the parent's
+inline `[label](attachment:)` reference. `AGENT_NSEC` signs the whole tree as
+that agent when set. The response returns the root event id and every child
+event id in publication order.
+
 This request/response model is also the contract boundary used by the HTTPS
 MCP ingress. That adapter adds remote authentication and admission, then calls
 the same daemon service rather than reproducing producer capabilities. See

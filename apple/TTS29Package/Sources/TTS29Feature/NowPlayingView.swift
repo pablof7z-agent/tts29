@@ -1,40 +1,54 @@
 import SwiftUI
 
-/// The item surface — the reference player's key insight is that the preview and
-/// the player are one surface. Identity and subject sit above a read-along
-/// transcript that flows into attachments and questions, with the transport
-/// fixed at the base.
+/// The item surface — preview and player are one surface. Identity and subject
+/// sit above a read-along transcript (with inline attachment links and images)
+/// that flows into the attachments rail and questions, with a compact transport
+/// fixed at the base. Speed lives in the toolbar; the back control badges how
+/// many items would autoplay next.
 struct NowPlayingView: View {
     let item: SpokenItem
     let playback: PlaybackController
+    let onOpenChild: (SpokenItem) -> Void
     private let document: TranscriptDocument
     @State private var following = true
+    @State private var previewedAttachment: DurableArtifact?
+    @Environment(\.openURL) private var openURL
+    @Environment(\.dismiss) private var dismiss
 
-    init(item: SpokenItem, playback: PlaybackController) {
+    init(item: SpokenItem, playback: PlaybackController, onOpenChild: @escaping (SpokenItem) -> Void) {
         self.item = item
         self.playback = playback
+        self.onOpenChild = onOpenChild
         document = TranscriptDocument(item.body)
     }
 
     private var identity: AgentIdentity { AgentIdentity(item) }
     private var isActive: Bool { playback.isActive(item) }
-    private var focusedID: Int? { isActive ? playback.focusedBlockID(in: document) : nil }
+    private var focus: TranscriptFocus? { isActive ? document.focus(at: playback.progress) : nil }
+    private var focusedID: Int? { focus?.block }
 
     var body: some View {
         ScrollViewReader { proxy in
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
                     header
-                    Text(item.subject)
-                        .font(.title2.bold())
-                        .lineLimit(3)
-                        .padding(.horizontal, 20)
-
+                    Text(item.subject).font(.title2.bold()).lineLimit(3).padding(.horizontal, 20)
                     if !document.isEmpty {
-                        TranscriptBlocks(document: document, focusedID: focusedID, onSeek: seek)
+                        TranscriptBlocks(
+                            document: document,
+                            focus: focus,
+                            attachments: item.attachments,
+                            children: item.children,
+                            onSeek: seek,
+                            onOpenAttachment: openAttachment,
+                            onOpenChild: onOpenChild
+                        )
+                    }
+                    if !item.children.isEmpty {
+                        NarratedBranchesRail(children: item.children, onOpen: onOpenChild)
                     }
                     if item.hasAttachments {
-                        AttachmentsRail(attachments: item.attachments)
+                        AttachmentsRail(attachments: item.attachments, onOpen: openAttachment)
                     }
                     if item.hasQuestions {
                         QuestionsSection(questions: item.questions, answer: item.answer)
@@ -59,10 +73,45 @@ struct NowPlayingView: View {
                 startButton
             }
         }
+        .toolbar { toolbar }
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
+        .navigationBarBackButtonHidden(true)
         #endif
+        .sheet(item: $previewedAttachment) { AttachmentPreview(attachment: $0) }
+        .onAppear {
+            // Returning from a narrated branch resumes the parent where it was.
+            if !isActive, playback.resumeOffset(for: item) != nil {
+                playback.toggle(item)
+            }
+        }
         .accessibilityIdentifier("tts29.nowplaying")
+    }
+
+    @ToolbarContentBuilder
+    private var toolbar: some ToolbarContent {
+        #if os(iOS)
+        ToolbarItem(placement: .topBarLeading) { backButton }
+        #endif
+        ToolbarItem(placement: .primaryAction) { SpeedControl(playback: playback) }
+    }
+
+    private var backButton: some View {
+        let upNext = playback.upNextCount(after: item)
+        return Button { dismiss() } label: {
+            HStack(spacing: 5) {
+                Image(systemName: "chevron.backward").fontWeight(.semibold)
+                if upNext > 0 {
+                    Text("\(upNext)")
+                        .font(.caption2.weight(.bold).monospacedDigit())
+                        .padding(.horizontal, 6).padding(.vertical, 1)
+                        .background(Color.accentColor, in: Capsule())
+                        .foregroundStyle(.white)
+                }
+            }
+        }
+        .accessibilityLabel(upNext > 0 ? "Back, \(upNext) queued next" : "Back")
+        .accessibilityIdentifier("tts29.nowplaying.back")
     }
 
     private var header: some View {
@@ -70,8 +119,7 @@ struct NowPlayingView: View {
             AgentAvatar(identity: identity, size: 40)
             VStack(alignment: .leading, spacing: 2) {
                 Text(identity.displayName).font(.subheadline.weight(.medium)).lineLimit(1)
-                Text(Formatting.timestamp(item.createdDate))
-                    .font(.caption).foregroundStyle(.secondary)
+                Text(Formatting.timestamp(item.createdDate)).font(.caption).foregroundStyle(.secondary)
             }
             Spacer()
             ForEach(item.reactions.prefix(3)) { ReactionChip(reaction: $0) }
@@ -80,18 +128,16 @@ struct NowPlayingView: View {
     }
 
     private var startButton: some View {
-        Button {
-            playback.toggle(item)
-        } label: {
+        Button { playback.toggle(item) } label: {
             Label(playback.isActive(item) && playback.phase == .failed ? "Retry" : "Play",
                   systemImage: "play.fill")
                 .font(.headline)
+                .foregroundStyle(.white)
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 14)
                 .glassSurface(in: Capsule(), tint: .accentColor, interactive: true)
         }
         .buttonStyle(.plain)
-        .foregroundStyle(Color.accentColor)
         .disabled(item.playableURL == nil)
         .padding(.horizontal, 20)
         .padding(.bottom, 8)
@@ -122,5 +168,13 @@ struct NowPlayingView: View {
         if !isActive { playback.toggle(item) }
         following = true
         playback.seek(toFraction: block.startFraction)
+    }
+
+    private func openAttachment(_ attachment: DurableArtifact) {
+        if AttachmentOpener.opensInApp(attachment) {
+            previewedAttachment = attachment
+        } else if let url = URL(string: attachment.url) {
+            openURL(url)
+        }
     }
 }

@@ -74,6 +74,13 @@ pub struct ReactionSummary {
     pub authors: Vec<String>,
 }
 
+/// Links a narrated child item to the parent that references it. The parent's
+/// inline `[label](attachment:)` is matched against this child's title.
+#[derive(Clone, Debug, Deserialize, JsonSchema, PartialEq, Serialize)]
+pub struct AttachLink {
+    pub parent_id: String,
+}
+
 #[derive(Clone, Debug, Deserialize, JsonSchema, PartialEq, Serialize)]
 pub struct SpokenItem {
     pub id: String,
@@ -90,4 +97,10 @@ pub struct SpokenItem {
     pub answer: Option<AnswerBundle>,
     pub acknowledgement: Option<Acknowledgement>,
     pub reactions: Vec<ReactionSummary>,
+    /// Present when this item is a narrated attachment of another item.
+    #[serde(default)]
+    pub attach: Option<AttachLink>,
+    /// Narrated attachment items nested under this item by the projection.
+    #[serde(default)]
+    pub children: Vec<SpokenItem>,
 }

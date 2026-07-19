@@ -78,6 +78,7 @@ fn published_job() -> JobRecord {
         body: "Should I ship?".into(),
         attachments: Vec::new(),
         questions: vec![question()],
+    attach: None,
     };
     let item = FrozenSpokenItem {
         author: hex_char('a', 64),
@@ -96,6 +97,7 @@ fn published_job() -> JobRecord {
         },
         attachments: Vec::new(),
         questions: request.questions.clone(),
+    attach: None,
     };
     JobRecord {
         schema_version: 1,

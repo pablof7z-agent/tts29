@@ -28,6 +28,7 @@ impl Clock for SystemClock {
     }
 }
 
+#[derive(Clone)]
 pub struct BlossomUploadConfig {
     pub server: String,
     pub allowed_local_hosts: BTreeSet<String>,
@@ -90,6 +91,45 @@ impl BlossomArtifactUploader {
             clock,
             authorization_lifetime: config.authorization_lifetime,
             max_upload_bytes: config.max_upload_bytes,
+        })
+    }
+
+    /// Uploads an arbitrary attachment file (image, markdown, …) as a durable
+    /// artifact. Unlike synthesized audio this accepts any media type; the URL
+    /// must still resolve to public HTTPS.
+    pub fn make_durable_file(
+        &self,
+        path: &std::path::Path,
+        label: String,
+    ) -> Result<DurableArtifact, String> {
+        let bytes = fs::read(path)
+            .map_err(|error| format!("attachment could not be read: {error}"))?;
+        let size = bytes.len() as u64;
+        if size == 0 || size > self.max_upload_bytes {
+            return Err("attachment is empty or exceeds the Blossom upload limit".into());
+        }
+        let media_type = infer_media_type(path);
+        let hash = Sha256Hash::of(&bytes);
+        let now = Timestamp::from(self.clock.unix_millis() / 1_000);
+        let authorization = self.authorization(hash, now)?;
+        let upload = self
+            .runtime
+            .block_on(
+                self.client
+                    .upload(&self.server, &bytes, Some(&media_type), &authorization),
+            )
+            .map_err(|error| error.to_string())?;
+        let descriptor = upload.into_descriptor();
+        validate_public_url(&descriptor.url)?;
+        if descriptor.size != size {
+            return Err("Blossom descriptor size does not match the attachment".into());
+        }
+        Ok(DurableArtifact {
+            url: descriptor.url,
+            sha256: descriptor.sha256.to_hex(),
+            media_type,
+            byte_count: descriptor.size,
+            label: Some(label),
         })
     }
 
@@ -173,7 +213,32 @@ impl ArtifactUploader for BlossomArtifactUploader {
     }
 }
 
-fn validate_descriptor(url: &str, media_type: Option<&str>) -> Result<(), String> {
+fn infer_media_type(path: &std::path::Path) -> String {
+    let extension = path
+        .extension()
+        .and_then(|value| value.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    match extension.as_str() {
+        "png" => "image/png",
+        "jpg" | "jpeg" => "image/jpeg",
+        "gif" => "image/gif",
+        "webp" => "image/webp",
+        "heic" => "image/heic",
+        "svg" => "image/svg+xml",
+        "md" | "markdown" => "text/markdown",
+        "txt" | "log" => "text/plain",
+        "json" => "application/json",
+        "pdf" => "application/pdf",
+        "mp3" => "audio/mpeg",
+        "wav" => "audio/wav",
+        "m4a" => "audio/mp4",
+        _ => "application/octet-stream",
+    }
+    .to_string()
+}
+
+fn validate_public_url(url: &str) -> Result<(), String> {
     let url = Url::parse(url).map_err(|_| "Blossom descriptor URL is invalid".to_string())?;
     if url.scheme() != "https"
         || url.host_str().is_none()
@@ -184,6 +249,11 @@ fn validate_descriptor(url: &str, media_type: Option<&str>) -> Result<(), String
     {
         return Err("Blossom descriptor URL must be public HTTPS".into());
     }
+    Ok(())
+}
+
+fn validate_descriptor(url: &str, media_type: Option<&str>) -> Result<(), String> {
+    validate_public_url(url)?;
     if let Some(media_type) = media_type {
         if !matches!(
             media_type,

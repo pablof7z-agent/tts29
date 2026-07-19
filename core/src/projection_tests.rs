@@ -109,6 +109,71 @@ fn viewer_archive_hides_item_without_publishing_playback_state() {
     assert!(snapshot.items.is_empty());
 }
 
+#[test]
+fn nests_narrated_child_and_excludes_it_from_top_level() {
+    let rows = vec![item_row(1, 10), child_row(2, 9, 1, "Details")];
+    let snapshot = project(&configuration(None), &rows, &AcquisitionEvidence::default());
+
+    assert_eq!(snapshot.items.len(), 1);
+    let parent = &snapshot.items[0];
+    assert_eq!(parent.children.len(), 1);
+    let child = &parent.children[0];
+    assert_eq!(child.subject, "Details");
+    assert_eq!(child.attach.as_ref().unwrap().parent_id, hex(1, 64));
+    assert_eq!(snapshot.evidence.rejected_event_count, 0);
+}
+
+#[test]
+fn orphan_narrated_child_is_rejected() {
+    let rows = vec![child_row(2, 9, 1, "Details")];
+    let snapshot = project(&configuration(None), &rows, &AcquisitionEvidence::default());
+
+    assert!(snapshot.items.is_empty());
+    assert_eq!(snapshot.evidence.rejected_event_count, 1);
+}
+
+#[test]
+fn nests_grandchildren_and_bounds_depth() {
+    let rows = vec![
+        item_row(1, 10),
+        child_row(2, 9, 1, "L1"),
+        child_row(3, 8, 2, "L2"),
+        child_row(4, 7, 3, "L3"),
+        child_row(5, 6, 4, "L4"),
+    ];
+    let snapshot = project(&configuration(None), &rows, &AcquisitionEvidence::default());
+
+    assert_eq!(snapshot.items.len(), 1);
+    let l1 = &snapshot.items[0].children[0];
+    let l2 = &l1.children[0];
+    let l3 = &l2.children[0];
+    assert!(l3.children.is_empty());
+    assert_eq!(snapshot.evidence.rejected_event_count, 1);
+}
+
+fn child_row(id: u8, created_at: u64, parent: u8, label: &str) -> Row {
+    event_row(
+        id,
+        'a',
+        created_at,
+        vec![
+            vec!["h", GROUP],
+            vec!["tts29", "item", "1"],
+            vec!["title", label],
+            vec!["agent", "Codex"],
+            vec![
+                "audio",
+                "https://cdn.example/child.mp3",
+                &hex(5, 64),
+                "audio/mpeg",
+                "900",
+            ],
+            vec!["e", &hex(parent, 64), "", "attach"],
+        ],
+        "This is the narrated branch body.",
+    )
+}
+
 fn item_row(id: u8, created_at: u64) -> Row {
     event_row(
         id,

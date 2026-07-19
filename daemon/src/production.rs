@@ -1,8 +1,11 @@
-use std::path::PathBuf;
+use std::fs;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
 use nmp::{Engine, EngineConfig, RelayUrl};
+use tts29_producer_api::{SpokenTree, TreeAttachment};
+use tts29_protocol::{AttachLink, Question};
 
 use crate::identity::IdentityRegistry;
 use crate::{
@@ -21,6 +24,7 @@ pub struct ProductionConfig {
     pub secret_key: String,
     pub host: String,
     pub group_id: String,
+    pub default_voice: String,
     pub kokoro: KokoroConfig,
     pub blossom: BlossomUploadConfig,
     pub receipt_timeout: Duration,
@@ -30,10 +34,20 @@ pub struct ProductionProducer {
     runner: ProductionRunner,
     engine: Arc<Engine>,
     identities: IdentityRegistry,
+    file_uploader: BlossomArtifactUploader,
+    default_voice: String,
     author: String,
     group_id: String,
     clock: Arc<dyn Clock + Send + Sync>,
     answer_waiter: AnswerWaiter,
+}
+
+/// Evidence for one published spoken tree: the root event and every narrated
+/// child, in publication order.
+#[derive(Clone, Debug)]
+pub struct TreePublication {
+    pub root_event_id: String,
+    pub child_event_ids: Vec<String>,
 }
 
 impl ProductionProducer {
@@ -69,6 +83,12 @@ impl ProductionProducer {
         let uploader = BlossomArtifactUploader::new(
             Arc::clone(&engine),
             author_key,
+            config.blossom.clone(),
+            Arc::clone(&clock),
+        )?;
+        let file_uploader = BlossomArtifactUploader::new(
+            Arc::clone(&engine),
+            author_key,
             config.blossom,
             Arc::clone(&clock),
         )?;
@@ -93,6 +113,8 @@ impl ProductionProducer {
         Ok(Self {
             runner,
             identities: IdentityRegistry::new(Arc::clone(&engine), account),
+            file_uploader,
+            default_voice: config.default_voice,
             engine,
             author: author_key.to_hex(),
             group_id: config.group_id,
@@ -158,6 +180,144 @@ impl ProductionProducer {
         self.runner.advance(request_id)
     }
 
+    /// Synthesizes, uploads, and publishes a whole spoken tree: the root first,
+    /// then each narrated child linked back to its parent event id, depth-first.
+    /// Every message and file attachment is a local path the daemon reads. When
+    /// `agent_secret` is set, the whole tree is signed as that agent; otherwise
+    /// the daemon identity signs.
+    pub fn publish_tree(
+        &mut self,
+        tree: SpokenTree,
+        agent_name: &str,
+        agent_secret: Option<&str>,
+    ) -> Result<TreePublication, ProducerError> {
+        if tree.group_id != self.group_id {
+            return Err(ProducerError::InvalidRequest("group_id"));
+        }
+        let identity =
+            self.identities
+                .request(agent_secret)
+                .map_err(|reason| ProducerError::Capability {
+                    stage: "request_identity",
+                    reason,
+                })?;
+        let author = identity.author_hex();
+        let created_at = self.clock.unix_millis() / 1_000;
+        let mut children = Vec::new();
+        let result = self
+            .publish_node(
+                tree.request_id.clone(),
+                tree.title,
+                tree.summary.unwrap_or_default(),
+                &tree.message,
+                tree.questions,
+                tree.attachments,
+                None,
+                agent_name,
+                &author,
+                created_at,
+                &mut children,
+            )
+            .map(|root| TreePublication {
+                root_event_id: root,
+                child_event_ids: children,
+            });
+        let cleanup = identity
+            .close()
+            .map_err(|reason| ProducerError::Capability {
+                stage: "request_identity_cleanup",
+                reason,
+            });
+        match (result, cleanup) {
+            (_, Err(error)) => Err(error),
+            (result, Ok(())) => result,
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn publish_node(
+        &mut self,
+        request_id: String,
+        title: String,
+        summary: String,
+        message_path: &str,
+        questions: Vec<Question>,
+        attachments: Vec<TreeAttachment>,
+        parent_event_id: Option<String>,
+        agent_name: &str,
+        author: &str,
+        created_at: u64,
+        published_children: &mut Vec<String>,
+    ) -> Result<String, ProducerError> {
+        let body = fs::read_to_string(message_path).map_err(|error| ProducerError::Capability {
+            stage: "read_message",
+            reason: error.to_string(),
+        })?;
+        let mut durable = Vec::new();
+        let mut narrated = Vec::new();
+        for attachment in attachments {
+            match attachment {
+                TreeAttachment::File { label, file } => {
+                    let artifact = self
+                        .file_uploader
+                        .make_durable_file(Path::new(&file), label)
+                        .map_err(|reason| ProducerError::Capability {
+                            stage: "attachment_upload",
+                            reason,
+                        })?;
+                    durable.push(artifact);
+                }
+                TreeAttachment::Narrated {
+                    label,
+                    message,
+                    questions,
+                    attachments,
+                } => narrated.push((label, message, questions, attachments)),
+            }
+        }
+        let request = ProducerRequest {
+            request_id: request_id.clone(),
+            group_id: self.group_id.clone(),
+            voice: self.default_voice.clone(),
+            agent_name: agent_name.to_string(),
+            subject: title,
+            summary,
+            body,
+            attachments: durable,
+            questions,
+            attach: parent_event_id.map(|parent_id| AttachLink { parent_id }),
+        };
+        let job = self.publish_as(request, author.to_string(), created_at)?;
+        let event_id = job
+            .phase
+            .event_id()
+            .ok_or_else(|| ProducerError::Capability {
+                stage: "publication",
+                reason: "spoken node did not reach publication".into(),
+            })?
+            .to_string();
+        for (index, (label, message, child_questions, child_attachments)) in
+            narrated.into_iter().enumerate()
+        {
+            let child_id = child_request_id(&request_id, index);
+            let child_event = self.publish_node(
+                child_id,
+                label,
+                String::new(),
+                &message,
+                child_questions,
+                child_attachments,
+                Some(event_id.clone()),
+                agent_name,
+                author,
+                created_at,
+                published_children,
+            )?;
+            published_children.push(child_event);
+        }
+        Ok(event_id)
+    }
+
     pub fn wait_for_answer(
         &self,
         job: &JobRecord,
@@ -199,4 +359,13 @@ impl Drop for ProductionProducer {
     fn drop(&mut self) {
         self.engine.shutdown();
     }
+}
+
+/// A per-child journaled request id derived from its parent's, bounded to the
+/// request-id length limit and restricted to allowed characters.
+fn child_request_id(parent: &str, index: usize) -> String {
+    let mut id: String = parent.chars().take(60).collect();
+    id.push('-');
+    id.push_str(&index.to_string());
+    id
 }

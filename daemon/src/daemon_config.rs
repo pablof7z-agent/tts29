@@ -30,6 +30,8 @@ struct FileConfig {
     blossom: BlossomFileConfig,
     #[serde(default = "default_receipt_timeout")]
     receipt_timeout_seconds: u64,
+    #[serde(default = "default_voice")]
+    default_voice: String,
 }
 
 #[derive(Deserialize)]
@@ -112,6 +114,7 @@ pub fn load_daemon_config(path: impl AsRef<Path>) -> Result<LoadedDaemonConfig, 
             secret_key,
             host: file.host,
             group_id: file.group_id,
+            default_voice: file.default_voice,
             kokoro,
             blossom,
             receipt_timeout: Duration::from_secs(file.receipt_timeout_seconds),
@@ -174,6 +177,10 @@ fn resolve(base: &Path, value: PathBuf) -> PathBuf {
 
 fn default_receipt_timeout() -> u64 {
     30
+}
+
+fn default_voice() -> String {
+    "af_heart".to_string()
 }
 
 fn default_kokoro_timeout() -> u64 {

@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::parse::tags::{artifact, bounded, identifier};
 use crate::parse::VERSION;
-use crate::{DurableArtifact, Question, QuestionKind};
+use crate::{AttachLink, DurableArtifact, Question, QuestionKind};
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct FrozenSpokenItem {
@@ -20,6 +20,9 @@ pub struct FrozenSpokenItem {
     pub audio: DurableArtifact,
     pub attachments: Vec<DurableArtifact>,
     pub questions: Vec<Question>,
+    /// Present when this item is a narrated attachment of another item.
+    #[serde(default)]
+    pub attach: Option<AttachLink>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -67,14 +70,24 @@ pub fn validate_spoken_item(item: &FrozenSpokenItem) -> Result<(), ComposeError>
     if bounded(&item.group_id, 128).is_none() {
         return Err(ComposeError::InvalidField("group_id"));
     }
-    for (name, value, max) in [
-        ("agent_name", item.agent_name.as_str(), 80),
-        ("subject", item.subject.as_str(), 80),
-        ("summary", item.summary.as_str(), 280),
-        ("body", item.body.as_str(), 40_000),
-    ] {
-        if bounded(value, max).is_none() {
-            return Err(ComposeError::InvalidField(name));
+    if bounded(&item.subject, 80).is_none() || bounded(&item.body, 40_000).is_none() {
+        return Err(ComposeError::InvalidField("subject_or_body"));
+    }
+    // Attribution and summary are optional; a present value is bounded.
+    if !item.agent_name.is_empty() && bounded(&item.agent_name, 80).is_none() {
+        return Err(ComposeError::InvalidField("agent_name"));
+    }
+    if !item.summary.is_empty() && bounded(&item.summary, 280).is_none() {
+        return Err(ComposeError::InvalidField("summary"));
+    }
+    if let Some(attach) = &item.attach {
+        let valid_parent = attach.parent_id.len() == 64
+            && attach
+                .parent_id
+                .bytes()
+                .all(|byte| byte.is_ascii_digit() || matches!(byte, b'a'..=b'f'));
+        if !valid_parent {
+            return Err(ComposeError::InvalidField("attach"));
         }
     }
     if !valid_artifact(&item.audio, false) || !item.audio.media_type.starts_with("audio/") {
@@ -145,15 +158,24 @@ fn tags(item: &FrozenSpokenItem) -> Vec<Vec<String>> {
     let mut result = vec![
         row(["tts29", "item", VERSION]),
         row(["title", &item.subject]),
-        row(["summary", &item.summary]),
-        row(["agent", &item.agent_name]),
         artifact_row(&item.audio, "audio"),
     ];
+    // Omit empty optional tags entirely — an empty `["agent", ""]` / `["summary",
+    // ""]` would be rejected on parse, and narrated children carry neither.
+    if !item.summary.is_empty() {
+        result.insert(2, row(["summary", &item.summary]));
+    }
+    if !item.agent_name.is_empty() {
+        result.insert(2, row(["agent", &item.agent_name]));
+    }
     result.extend(
         item.attachments
             .iter()
             .map(|value| artifact_row(value, "attachment")),
     );
+    if let Some(attach) = &item.attach {
+        result.push(row(["e", attach.parent_id.as_str(), "", "attach"]));
+    }
     for question in &item.questions {
         let kind = match question.kind {
             QuestionKind::SingleChoice => "single",
@@ -243,6 +265,27 @@ mod tests {
         assert_eq!(error, ComposeError::InvalidField("audio"));
     }
 
+    #[test]
+    fn narrated_child_emits_attach_tag_without_summary() {
+        let parent = "b".repeat(64);
+        let mut item = fixture();
+        item.summary = String::new();
+        item.subject = "Detailed explanation".into();
+        item.attach = Some(AttachLink {
+            parent_id: parent.clone(),
+        });
+        let composed = unsigned(compose_spoken_item(host(), &item).unwrap()).clone();
+
+        assert!(composed
+            .tags
+            .iter()
+            .any(|tag| tag.as_slice() == ["e", parent.as_str(), "", "attach"]));
+        assert!(!composed
+            .tags
+            .iter()
+            .any(|tag| tag.as_slice().first().map(String::as_str) == Some("summary")));
+    }
+
     fn fixture() -> FrozenSpokenItem {
         FrozenSpokenItem {
             author: "1".repeat(64),
@@ -261,6 +304,7 @@ mod tests {
             },
             attachments: Vec::new(),
             questions: Vec::new(),
+            attach: None,
         }
     }
 

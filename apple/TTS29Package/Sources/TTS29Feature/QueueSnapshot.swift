@@ -15,10 +15,12 @@ public struct SpokenItem: Codable, Identifiable, Sendable, Equatable, Hashable {
     public let answer: AnswerBundle?
     public let acknowledgement: Acknowledgement?
     public let reactions: [ReactionSummary]
+    public let attach: AttachLink?
+    public let children: [SpokenItem]
 
     enum CodingKeys: String, CodingKey {
         case id, author, subject, summary, body, audio, attachments, questions, answer
-        case acknowledgement, reactions
+        case acknowledgement, reactions, attach, children
         case createdAt = "created_at"
         case agentName = "agent_name"
         case audioURL = "audio_url"
@@ -38,7 +40,9 @@ public struct SpokenItem: Codable, Identifiable, Sendable, Equatable, Hashable {
         questions: [Question] = [],
         answer: AnswerBundle? = nil,
         acknowledgement: Acknowledgement? = nil,
-        reactions: [ReactionSummary] = []
+        reactions: [ReactionSummary] = [],
+        attach: AttachLink? = nil,
+        children: [SpokenItem] = []
     ) {
         self.id = id
         self.author = author
@@ -54,6 +58,8 @@ public struct SpokenItem: Codable, Identifiable, Sendable, Equatable, Hashable {
         self.answer = answer
         self.acknowledgement = acknowledgement
         self.reactions = reactions
+        self.attach = attach
+        self.children = children
     }
 
     public init(from decoder: Decoder) throws {
@@ -72,6 +78,14 @@ public struct SpokenItem: Codable, Identifiable, Sendable, Equatable, Hashable {
         answer = try container.decodeIfPresent(AnswerBundle.self, forKey: .answer)
         acknowledgement = try container.decodeIfPresent(Acknowledgement.self, forKey: .acknowledgement)
         reactions = try container.decodeIfPresent([ReactionSummary].self, forKey: .reactions) ?? []
+        attach = try container.decodeIfPresent(AttachLink.self, forKey: .attach)
+        children = try container.decodeIfPresent([SpokenItem].self, forKey: .children) ?? []
+    }
+
+    /// A narrated child branch of this item whose title matches an inline
+    /// `[label](attachment:)` reference in the body.
+    public func child(labeled label: String) -> SpokenItem? {
+        children.first { $0.subject == label }
     }
 
     /// The playable audio source, preferring the convenience URL and falling

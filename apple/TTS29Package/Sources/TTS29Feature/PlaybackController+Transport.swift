@@ -65,6 +65,13 @@ public extension PlaybackController {
         toggle(next)
     }
 
+    /// How many queued items would autoplay after the given item — the number
+    /// shown on the item surface's back control.
+    func upNextCount(after item: SpokenItem) -> Int {
+        guard let index = orderedItems.firstIndex(where: { $0.id == item.id }) else { return 0 }
+        return orderedItems[(index + 1)...].filter { $0.playableURL != nil }.count
+    }
+
     /// The block of the transcript most likely being spoken right now.
     func focusedBlockID(in document: TranscriptDocument) -> Int? {
         guard let index = document.focusedIndex(at: progress) else { return nil }

@@ -12,6 +12,6 @@ pub use membership::{
 pub use parse::{parse, ParsedEvent, Reaction, Related, VERSION};
 pub use related::{compose_answer, FrozenAnswer, RelatedComposeError};
 pub use tts29_contract::{
-    Acknowledgement, AcknowledgementState, AnswerBundle, DurableArtifact, Question, QuestionAnswer,
-    QuestionKind, QuestionOption, ReactionSummary, SpokenItem,
+    Acknowledgement, AcknowledgementState, AnswerBundle, AttachLink, DurableArtifact, Question,
+    QuestionAnswer, QuestionKind, QuestionOption, ReactionSummary, SpokenItem,
 };

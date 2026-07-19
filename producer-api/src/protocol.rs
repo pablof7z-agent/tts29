@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use tts29_contract::AnswerBundle;
 
-use crate::ProducerRequest;
+use crate::{ProducerRequest, SpokenTree};
 
 pub const LOCAL_PROTOCOL_VERSION: u16 = 1;
 pub const MAX_LOCAL_FRAME_BYTES: usize = 128 * 1024;
@@ -57,6 +57,55 @@ impl LocalPublishRequest {
     }
 }
 
+/// Submits a whole spoken tree of file paths. Attribution comes from
+/// `agent_id` (optional; absent means the signer's pubkey is the identity) and
+/// signing from `agent_nsec` (optional; absent means the daemon signs).
+#[derive(Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct LocalTreeRequest {
+    pub version: u16,
+    pub tree: SpokenTree,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_nsec: Option<String>,
+}
+
+impl LocalTreeRequest {
+    pub fn validate(&self) -> Result<(), LocalRequestError> {
+        if self.version != LOCAL_PROTOCOL_VERSION {
+            return Err(LocalRequestError::new(
+                "unsupported_version",
+                format!(
+                    "local protocol version {} is unsupported; expected {}",
+                    self.version, LOCAL_PROTOCOL_VERSION
+                ),
+            ));
+        }
+        if self
+            .agent_id
+            .as_ref()
+            .is_some_and(|value| value.is_empty() || value.len() > 80)
+        {
+            return Err(LocalRequestError::new(
+                "invalid_agent_identity",
+                "agent id has an invalid length",
+            ));
+        }
+        if self
+            .agent_nsec
+            .as_ref()
+            .is_some_and(|value| value.is_empty() || value.len() > 128)
+        {
+            return Err(LocalRequestError::new(
+                "invalid_agent_identity",
+                "request identity has an invalid encoded length",
+            ));
+        }
+        Ok(())
+    }
+}
+
 pub struct LocalRequestError {
     pub code: &'static str,
     pub message: String,
@@ -80,6 +129,12 @@ pub enum LocalPublishResponse {
         receipt_id: u64,
         event_id: String,
         answer_wait: AnswerWaitResult,
+    },
+    PublishedTree {
+        version: u16,
+        request_id: String,
+        root_event_id: String,
+        child_event_ids: Vec<String>,
     },
     Error {
         version: u16,

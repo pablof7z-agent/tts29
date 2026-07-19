@@ -65,6 +65,13 @@ impl JobPhase {
     pub fn is_published(&self) -> bool {
         matches!(self, Self::Published { .. })
     }
+
+    pub fn event_id(&self) -> Option<&str> {
+        match self {
+            Self::Published { event_id, .. } => Some(event_id),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -117,6 +124,7 @@ mod tests {
             body: "Do not persist the request signer.".into(),
             attachments: Vec::new(),
             questions: Vec::new(),
+        attach: None,
         }
     }
 }

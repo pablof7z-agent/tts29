@@ -9,11 +9,18 @@ public struct ContentView: View {
     @State private var agentFilter: Set<String> = []
     @State private var showsConnectionSettings = false
     @Namespace private var zoom
+    @State private var didAutoOpen = false
     private let autoPlayItemID: String?
+    private let openItemID: String?
 
-    public init(initialSnapshot: QueueSnapshot? = nil, autoPlayItemID: String? = nil) {
+    public init(
+        initialSnapshot: QueueSnapshot? = nil,
+        autoPlayItemID: String? = nil,
+        openItemID: String? = nil
+    ) {
         _store = State(initialValue: TTS29Store(initialSnapshot: initialSnapshot))
         self.autoPlayItemID = autoPlayItemID
+        self.openItemID = openItemID
     }
 
     public var body: some View {
@@ -24,20 +31,28 @@ public struct ContentView: View {
                 playback: playback,
                 isFiltering: isFiltering,
                 namespace: zoom,
-                onOpen: { path.append($0) },
+                onOpen: { open($0) },
                 onPlay: { playback.toggle($0) },
                 onEditConnection: { showsConnectionSettings = true }
             )
             .navigationTitle("TTS29")
             .toolbar { toolbar }
-            .navigationDestination(for: SpokenItem.self) { item in
-                NowPlayingView(item: item, playback: playback)
-                    .zoomDestination(item.id, in: zoom)
+            .navigationDestination(for: String.self) { id in
+                // Resolve the live item each snapshot so nested children,
+                // answers, and reactions stay fresh in the pushed surface.
+                if let live = PlaybackController.flatten(store.snapshot.items)
+                    .first(where: { $0.id == id }) {
+                    NowPlayingView(item: live, playback: playback, onOpenChild: openChild)
+                        .zoomDestination(id, in: zoom)
+                } else {
+                    ContentUnavailableView("Update unavailable", systemImage: "waveform")
+                }
             }
             .safeAreaInset(edge: .bottom) {
-                MiniPlayerView(playback: playback) { path.append($0) }
+                MiniPlayerView(playback: playback) { path.append($0.id) }
                     .animation(.snappy, value: playback.selectedItemID)
             }
+            // (mini-player only navigates — its item is already playing)
         }
         .searchable(text: $search, prompt: "Search updates")
         .task {
@@ -47,6 +62,7 @@ public struct ContentView: View {
         .onChange(of: store.snapshot.items, initial: true) { _, items in
             playback.synchronize(with: items)
             autoPlayIfNeeded(items)
+            autoOpenIfNeeded(items)
         }
         .sheet(isPresented: $showsConnectionSettings) {
             ConnectionSettingsView()
@@ -108,10 +124,38 @@ public struct ContentView: View {
         )
     }
 
+    /// Opening an item pushes its surface and starts playback, so tapping a row
+    /// behaves like the reference player. An item that is already the current
+    /// one is not toggled (that would pause it).
+    private func open(_ item: SpokenItem) {
+        path.append(item.id)
+        if !playback.isActive(item) {
+            playback.toggle(item)
+        }
+    }
+
+    /// Opening a narrated branch pushes the same player surface and starts it,
+    /// so it plays exactly like the main message; `< back` returns here.
+    private func openChild(_ child: SpokenItem) {
+        path.append(child.id)
+        if !playback.isActive(child) {
+            playback.toggle(child)
+        }
+    }
+
     private func autoPlayIfNeeded(_ items: [SpokenItem]) {
         guard playback.selectedItemID == nil,
               let autoPlayItemID,
-              let item = items.first(where: { $0.id == autoPlayItemID }) else { return }
+              let item = PlaybackController.flatten(items).first(where: { $0.id == autoPlayItemID }) else { return }
         playback.toggle(item)
+    }
+
+    /// DEBUG-only affordance so the item surface can be driven and captured
+    /// directly on launch without depending on a fragile programmatic tap.
+    private func autoOpenIfNeeded(_ items: [SpokenItem]) {
+        guard !didAutoOpen, let openItemID,
+              let item = PlaybackController.flatten(items).first(where: { $0.id == openItemID }) else { return }
+        didAutoOpen = true
+        open(item)
     }
 }
