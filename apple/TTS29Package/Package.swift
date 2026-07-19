@@ -24,16 +24,6 @@ let package = Package(
             name: "TTS29FeatureTests",
             dependencies: [
                 "TTS29Feature"
-            ],
-            linkerSettings: [
-                .unsafeFlags([
-                    "-L../../core/target/aarch64-apple-ios-sim/release",
-                    "-ltts29_core",
-                ], .when(platforms: [.iOS])),
-                .unsafeFlags([
-                    "-L../../core/target/release",
-                    "-ltts29_core",
-                ], .when(platforms: [.macOS])),
             ]
         ),
     ]
