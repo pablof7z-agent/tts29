@@ -13,6 +13,28 @@ unsafe parent; it removes only a demonstrably stale socket with the same
 filesystem identity. SIGINT and SIGTERM stop admission after the current
 bounded request, shut NMP down, and remove the owned socket.
 
+## Launcher
+
+`scripts/tts` is a thin launcher that makes the CLI just work: it ensures the
+resident daemon is up (starting `tts29d` if the socket is dead and waiting for
+it), then forwards the update to `tts29`. It reads the daemon config from
+`TTS29_CONFIG` or `~/.config/tts29/daemon.json`, sources secrets
+(`TTS29_DAEMON_NSEC`, Kokoro credentials) from `TTS29_ENV_FILE` or
+`~/.config/tts29/env`, and signs the update as the caller's `AGENT_NSEC`.
+
+```bash
+AGENT_NSEC='nsec1agent…' scripts/tts \
+  --subject "Build complete" \
+  --summary "The verified build is ready." \
+  --message "The verified build is ready for review." \
+  --agent-id "Codex"
+```
+
+`--message` also accepts `@path` or `-` (stdin). `--request <file|->` and
+`--tree <file|->` forward a raw `ProducerRequest` or `SpokenTree` unchanged. The
+launcher only spawns the resident daemon and passes identities through; it never
+initializes NMP itself.
+
 ## Configure and start the daemon
 
 Copy `daemon/example-config.json` and replace the Kokoro and Blossom endpoints.
