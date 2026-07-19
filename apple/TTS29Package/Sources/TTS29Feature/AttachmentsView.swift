@@ -21,12 +21,12 @@ enum AttachmentKind {
     }
 }
 
-/// The accent-tinted attachments rail at the end of the transcript. Images and
-/// text open in-app; audio and other files hand off to the system.
+/// The accent-tinted attachments rail at the end of the transcript. It shows
+/// every attachment; opening is delegated so inline references and the rail
+/// share one handler and preview surface.
 struct AttachmentsRail: View {
     let attachments: [DurableArtifact]
-    @State private var preview: DurableArtifact?
-    @Environment(\.openURL) private var openURL
+    let onOpen: (DurableArtifact) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -38,21 +38,22 @@ struct AttachmentsRail: View {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 12) {
                     ForEach(attachments) { attachment in
-                        AttachmentCard(attachment: attachment) { open(attachment) }
+                        AttachmentCard(attachment: attachment) { onOpen(attachment) }
                     }
                 }
                 .padding(.horizontal, 20)
             }
         }
-        .sheet(item: $preview) { AttachmentPreview(attachment: $0) }
     }
+}
 
-    private func open(_ attachment: DurableArtifact) {
+/// Resolves how an attachment opens: images and text preview in-app; audio and
+/// other files hand off to the system.
+enum AttachmentOpener {
+    static func opensInApp(_ attachment: DurableArtifact) -> Bool {
         switch AttachmentKind(mediaType: attachment.mediaType) {
-        case .image, .text:
-            preview = attachment
-        case .audio, .other:
-            if let url = URL(string: attachment.url) { openURL(url) }
+        case .image, .text: true
+        case .audio, .other: false
         }
     }
 }

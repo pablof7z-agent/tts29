@@ -9,11 +9,18 @@ public struct ContentView: View {
     @State private var agentFilter: Set<String> = []
     @State private var showsConnectionSettings = false
     @Namespace private var zoom
+    @State private var didAutoOpen = false
     private let autoPlayItemID: String?
+    private let openItemID: String?
 
-    public init(initialSnapshot: QueueSnapshot? = nil, autoPlayItemID: String? = nil) {
+    public init(
+        initialSnapshot: QueueSnapshot? = nil,
+        autoPlayItemID: String? = nil,
+        openItemID: String? = nil
+    ) {
         _store = State(initialValue: TTS29Store(initialSnapshot: initialSnapshot))
         self.autoPlayItemID = autoPlayItemID
+        self.openItemID = openItemID
     }
 
     public var body: some View {
@@ -47,6 +54,7 @@ public struct ContentView: View {
         .onChange(of: store.snapshot.items, initial: true) { _, items in
             playback.synchronize(with: items)
             autoPlayIfNeeded(items)
+            autoOpenIfNeeded(items)
         }
         .sheet(isPresented: $showsConnectionSettings) {
             ConnectionSettingsView()
@@ -113,5 +121,14 @@ public struct ContentView: View {
               let autoPlayItemID,
               let item = items.first(where: { $0.id == autoPlayItemID }) else { return }
         playback.toggle(item)
+    }
+
+    /// DEBUG-only affordance so the item surface can be driven and captured
+    /// directly on launch without depending on a fragile programmatic tap.
+    private func autoOpenIfNeeded(_ items: [SpokenItem]) {
+        guard !didAutoOpen, let openItemID,
+              let item = items.first(where: { $0.id == openItemID }) else { return }
+        didAutoOpen = true
+        path.append(item)
     }
 }

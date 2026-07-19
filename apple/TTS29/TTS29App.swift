@@ -7,7 +7,8 @@ struct TTS29App: App {
         WindowGroup {
             ContentView(
                 initialSnapshot: Self.injectedSnapshot,
-                autoPlayItemID: Self.autoPlayItemID
+                autoPlayItemID: Self.autoPlayItemID,
+                openItemID: Self.openItemID
             )
         }
     }
@@ -15,6 +16,17 @@ struct TTS29App: App {
     private static var autoPlayItemID: String? {
 #if DEBUG
         ProcessInfo.processInfo.environment["TTS29_UI_AUTOPLAY_ID"]
+#else
+        nil
+#endif
+    }
+
+    /// DEBUG-only: push straight into a real item's surface on launch so it can
+    /// be captured without a fragile programmatic tap. Matches items from the
+    /// live relay projection by event id.
+    private static var openItemID: String? {
+#if DEBUG
+        ProcessInfo.processInfo.environment["TTS29_UI_OPEN_ID"]
 #else
         nil
 #endif
