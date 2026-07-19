@@ -110,6 +110,16 @@ import Testing
     #expect(rewritten.contains("[Missing](attachment:)"))
 }
 
+@Test func focusAdvancesBySentenceWithinAParagraph() {
+    let document = TranscriptDocument("First sentence here. Second sentence follows.")
+    let early = document.focus(at: 0.05)
+    let late = document.focus(at: 0.95)
+    // One paragraph block, two sentences: the highlight moves between them.
+    #expect(early?.block == late?.block)
+    #expect(early?.sentence == 0)
+    #expect(late?.sentence == 1)
+}
+
 @MainActor
 @Test func rateStoreRemembersPerAgent() {
     let suite = "tts29.rate.\(UUID().uuidString)"

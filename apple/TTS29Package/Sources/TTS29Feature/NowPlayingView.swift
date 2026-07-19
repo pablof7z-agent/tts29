@@ -24,7 +24,8 @@ struct NowPlayingView: View {
 
     private var identity: AgentIdentity { AgentIdentity(item) }
     private var isActive: Bool { playback.isActive(item) }
-    private var focusedID: Int? { isActive ? playback.focusedBlockID(in: document) : nil }
+    private var focus: TranscriptFocus? { isActive ? document.focus(at: playback.progress) : nil }
+    private var focusedID: Int? { focus?.block }
 
     var body: some View {
         ScrollViewReader { proxy in
@@ -35,7 +36,7 @@ struct NowPlayingView: View {
                     if !document.isEmpty {
                         TranscriptBlocks(
                             document: document,
-                            focusedID: focusedID,
+                            focus: focus,
                             attachments: item.attachments,
                             children: item.children,
                             onSeek: seek,

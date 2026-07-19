@@ -22,8 +22,22 @@ public struct TranscriptBlock: Identifiable, Equatable, Sendable {
     public var endFraction: Double
 }
 
+/// The sentence estimated to be spoken at a given progress: which block, and
+/// which sentence within it.
+public struct TranscriptFocus: Equatable, Sendable {
+    public let block: Int
+    public let sentence: Int
+}
+
 public struct TranscriptDocument: Equatable, Sendable {
     public let blocks: [TranscriptBlock]
+    private let units: [Unit]
+
+    private struct Unit: Equatable, Sendable {
+        let block: Int
+        let sentence: Int
+        let endFraction: Double
+    }
 
     public init(_ body: String) {
         var raw = Self.segment(body)
@@ -37,9 +51,48 @@ public struct TranscriptDocument: Equatable, Sendable {
             raw[index].endFraction = index == raw.indices.last ? 1 : end
         }
         blocks = raw
+
+        // Sub-divide each block into sentences so the highlight advances even
+        // inside a single paragraph. Weights are shared with the block total.
+        var units: [Unit] = []
+        var sentenceCursor = 0
+        for block in raw {
+            let sentences = Self.sentences(in: block)
+            for (offset, sentence) in sentences.enumerated() {
+                sentenceCursor += max(Self.speakableWeight(sentence), 1)
+                units.append(Unit(
+                    block: block.id,
+                    sentence: offset,
+                    endFraction: Double(sentenceCursor) / Double(total)
+                ))
+            }
+        }
+        if let last = units.indices.last {
+            units[last] = Unit(block: units[last].block, sentence: units[last].sentence, endFraction: 1)
+        }
+        self.units = units
     }
 
     public var isEmpty: Bool { blocks.isEmpty }
+
+    /// The sentences a block is split into for read-along; code and headings
+    /// stay whole.
+    public static func sentences(in block: TranscriptBlock) -> [String] {
+        switch block.kind {
+        case .code, .heading:
+            return [block.text]
+        default:
+            return Sentences.split(block.text)
+        }
+    }
+
+    /// The block and sentence most likely being spoken at 0…1 progress.
+    public func focus(at progress: Double) -> TranscriptFocus? {
+        guard !units.isEmpty else { return nil }
+        let clamped = min(max(progress, 0), 1)
+        let unit = units.first { clamped < $0.endFraction } ?? units[units.count - 1]
+        return TranscriptFocus(block: unit.block, sentence: unit.sentence)
+    }
 
     /// The block most likely being spoken at the given 0…1 audio progress.
     public func focusedIndex(at progress: Double) -> Int? {
@@ -130,5 +183,39 @@ public struct TranscriptDocument: Equatable, Sendable {
         text.unicodeScalars.reduce(0) { count, scalar in
             (CharacterSet.alphanumerics.contains(scalar)) ? count + 1 : count
         }
+    }
+}
+
+/// Splits prose into sentences on terminal punctuation followed by whitespace.
+/// An approximation — good enough to move the read-along highlight within a
+/// paragraph without real per-word timing.
+public enum Sentences {
+    public static func split(_ text: String) -> [String] {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return [] }
+        var sentences: [String] = []
+        var start = trimmed.startIndex
+        var index = trimmed.startIndex
+        while index < trimmed.endIndex {
+            let next = trimmed.index(after: index)
+            if ".!?".contains(trimmed[index]),
+               next == trimmed.endIndex || trimmed[next].isWhitespace {
+                let sentence = trimmed[start...index].trimmingCharacters(in: .whitespaces)
+                if !sentence.isEmpty { sentences.append(sentence) }
+                var skip = next
+                while skip < trimmed.endIndex, trimmed[skip].isWhitespace {
+                    skip = trimmed.index(after: skip)
+                }
+                start = skip
+                index = skip
+            } else {
+                index = next
+            }
+        }
+        if start < trimmed.endIndex {
+            let tail = trimmed[start...].trimmingCharacters(in: .whitespaces)
+            if !tail.isEmpty { sentences.append(tail) }
+        }
+        return sentences.isEmpty ? [trimmed] : sentences
     }
 }

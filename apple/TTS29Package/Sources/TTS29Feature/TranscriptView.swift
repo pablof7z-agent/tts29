@@ -1,12 +1,22 @@
 import SwiftUI
 
-/// The read-along transcript block list. Blocks focus at paragraph granularity
-/// (opacity-only, since there is no per-word timing). Inline `[label](attachment:)`
+/// Read-along focus for one block: which sentence (if any) is being spoken.
+enum SentenceFocus: Equatable {
+    case inactive        // nothing playing — show the whole transcript
+    case focused(Int)    // this block holds the spoken sentence at that index
+    case dimmed          // the spoken sentence is in another block
+
+    var isActive: Bool { self != .dimmed }
+}
+
+/// The read-along transcript. Focus advances at sentence granularity (an honest
+/// approximation, since the contract carries no per-word timing): the spoken
+/// sentence is primary, the rest recede. Inline `[label](attachment:)`
 /// references resolve to a file attachment (image inline / tappable link) or to
 /// a narrated child branch (tappable → opens that branch in the same player).
 struct TranscriptBlocks: View {
     let document: TranscriptDocument
-    let focusedID: Int?
+    let focus: TranscriptFocus?
     let attachments: [DurableArtifact]
     let children: [SpokenItem]
     let onSeek: (TranscriptBlock) -> Void
@@ -18,7 +28,7 @@ struct TranscriptBlocks: View {
             ForEach(document.blocks) { block in
                 TranscriptBlockView(
                     block: block,
-                    focused: focusedID == nil || block.id == focusedID,
+                    focus: sentenceFocus(for: block),
                     attachments: attachments,
                     children: children,
                     onOpenAttachment: onOpenAttachment
@@ -45,22 +55,25 @@ struct TranscriptBlocks: View {
             return .systemAction
         })
     }
+
+    private func sentenceFocus(for block: TranscriptBlock) -> SentenceFocus {
+        guard let focus else { return .inactive }
+        return focus.block == block.id ? .focused(focus.sentence) : .dimmed
+    }
 }
 
 private struct TranscriptBlockView: View {
     let block: TranscriptBlock
-    let focused: Bool
+    let focus: SentenceFocus
     let attachments: [DurableArtifact]
     let children: [SpokenItem]
     let onOpenAttachment: (DurableArtifact) -> Void
 
     var body: some View {
         content
-            .foregroundStyle(focused ? AnyShapeStyle(.primary) : AnyShapeStyle(.secondary))
-            .opacity(focused ? 1 : 0.5)
-            .animation(.easeInOut(duration: 0.35), value: focused)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .accessibilityAddTraits(focused ? .isSelected : [])
+            .animation(.easeInOut(duration: 0.35), value: focus)
+            .accessibilityAddTraits(focus.isActive ? .isSelected : [])
     }
 
     @ViewBuilder
@@ -69,6 +82,7 @@ private struct TranscriptBlockView: View {
         case let .heading(level):
             Text(inline(block.text))
                 .font(level <= 1 ? .title3.bold() : .headline)
+                .foregroundStyle(focus.isActive ? AnyShapeStyle(.primary) : AnyShapeStyle(.secondary))
                 .padding(.top, 4)
         case .paragraph:
             textWithInlineImages(block.text, font: .body)
@@ -77,8 +91,9 @@ private struct TranscriptBlockView: View {
         case let .ordered(number):
             marker(number, block.text)
         case .quote:
-            Text(inline(block.text))
+            Text(styled(block.text))
                 .font(.body.italic())
+                .tint(.accentColor)
                 .padding(.leading, 12)
                 .overlay(alignment: .leading) {
                     Capsule().fill(Color.accentColor.opacity(0.5)).frame(width: 3)
@@ -86,6 +101,7 @@ private struct TranscriptBlockView: View {
         case .code:
             Text(block.text)
                 .font(.callout.monospaced())
+                .foregroundStyle(focus.isActive ? AnyShapeStyle(.primary) : AnyShapeStyle(.secondary))
                 .padding(12)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 10))
@@ -94,7 +110,9 @@ private struct TranscriptBlockView: View {
 
     private func marker(_ glyph: String, _ text: String) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
-            Text(glyph).font(.body.monospacedDigit()).foregroundStyle(.secondary)
+            Text(glyph)
+                .font(.body.monospacedDigit())
+                .foregroundStyle(focus.isActive ? AnyShapeStyle(.secondary) : AnyShapeStyle(.tertiary))
             textWithInlineImages(text, font: .body)
         }
     }
@@ -103,11 +121,32 @@ private struct TranscriptBlockView: View {
     private func textWithInlineImages(_ text: String, font: Font) -> some View {
         let referenced = AttachmentLink.referencedImages(in: text, attachments: attachments)
         VStack(alignment: .leading, spacing: 10) {
-            Text(inline(text)).font(font).lineSpacing(4).tint(.accentColor)
+            Text(styled(text)).font(font).lineSpacing(4).tint(.accentColor)
             ForEach(referenced) { image in
                 InlineAttachmentImage(attachment: image) { onOpenAttachment(image) }
+                    .opacity(focus.isActive ? 1 : 0.55)
             }
         }
+    }
+
+    /// Builds the block's text with the spoken sentence primary and the rest
+    /// secondary, preserving inline attachment links.
+    private func styled(_ text: String) -> AttributedString {
+        let sentences = Sentences.split(text)
+        var result = AttributedString()
+        for (index, sentence) in sentences.enumerated() {
+            var attributed = inline(sentence)
+            let active: Bool
+            switch focus {
+            case .inactive: active = true
+            case let .focused(spoken): active = index == spoken
+            case .dimmed: active = false
+            }
+            if !active { attributed.foregroundColor = .secondary }
+            if index > 0 { result += AttributedString(" ") }
+            result += attributed
+        }
+        return result
     }
 
     private func inline(_ text: String) -> AttributedString {
@@ -148,9 +187,6 @@ enum AttachmentLink {
     static let attachmentScheme = "ttsattach"
     static let childScheme = "ttschild"
 
-    /// Rewrites `[label](attachment:)` whose label matches a file attachment or a
-    /// narrated child into a resolvable custom-scheme link. Unmatched references
-    /// (e.g. a child whose event has not arrived yet) are left as plain text.
     static func rewrite(_ text: String, attachments: [DurableArtifact], children: [SpokenItem]) -> String {
         matches(in: text).reversed().reduce(text) { current, match in
             let replacement: String
