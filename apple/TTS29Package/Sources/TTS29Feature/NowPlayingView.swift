@@ -125,12 +125,12 @@ struct NowPlayingView: View {
             Label(playback.isActive(item) && playback.phase == .failed ? "Retry" : "Play",
                   systemImage: "play.fill")
                 .font(.headline)
+                .foregroundStyle(.white)
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 14)
                 .glassSurface(in: Capsule(), tint: .accentColor, interactive: true)
         }
         .buttonStyle(.plain)
-        .foregroundStyle(Color.accentColor)
         .disabled(item.playableURL == nil)
         .padding(.horizontal, 20)
         .padding(.bottom, 8)

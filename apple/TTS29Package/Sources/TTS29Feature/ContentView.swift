@@ -31,7 +31,7 @@ public struct ContentView: View {
                 playback: playback,
                 isFiltering: isFiltering,
                 namespace: zoom,
-                onOpen: { path.append($0.id) },
+                onOpen: { open($0) },
                 onPlay: { playback.toggle($0) },
                 onEditConnection: { showsConnectionSettings = true }
             )
@@ -52,6 +52,7 @@ public struct ContentView: View {
                 MiniPlayerView(playback: playback) { path.append($0.id) }
                     .animation(.snappy, value: playback.selectedItemID)
             }
+            // (mini-player only navigates — its item is already playing)
         }
         .searchable(text: $search, prompt: "Search updates")
         .task {
@@ -123,11 +124,23 @@ public struct ContentView: View {
         )
     }
 
+    /// Opening an item pushes its surface and starts playback, so tapping a row
+    /// behaves like the reference player. An item that is already the current
+    /// one is not toggled (that would pause it).
+    private func open(_ item: SpokenItem) {
+        path.append(item.id)
+        if !playback.isActive(item) {
+            playback.toggle(item)
+        }
+    }
+
     /// Opening a narrated branch pushes the same player surface and starts it,
     /// so it plays exactly like the main message; `< back` returns here.
     private func openChild(_ child: SpokenItem) {
         path.append(child.id)
-        playback.toggle(child)
+        if !playback.isActive(child) {
+            playback.toggle(child)
+        }
     }
 
     private func autoPlayIfNeeded(_ items: [SpokenItem]) {
@@ -143,6 +156,6 @@ public struct ContentView: View {
         guard !didAutoOpen, let openItemID,
               let item = PlaybackController.flatten(items).first(where: { $0.id == openItemID }) else { return }
         didAutoOpen = true
-        path.append(item.id)
+        open(item)
     }
 }

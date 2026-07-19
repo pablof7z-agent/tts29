@@ -49,11 +49,11 @@ struct TransportCluster: View {
         } label: {
             Image(systemName: playback.isPlaying ? "pause.fill" : "play.fill")
                 .font(.title3)
+                .foregroundStyle(.white)
                 .frame(width: 44, height: 44)
                 .contentTransition(.symbolEffect(.replace))
         }
         .buttonStyle(.plain)
-        .foregroundStyle(Color.accentColor)
         .glassSurface(in: Circle(), tint: .accentColor, interactive: true)
         .sensoryFeedback(.impact(weight: .light), trigger: playback.isPlaying)
         .accessibilityLabel(playback.isPlaying ? "Pause" : "Play")
