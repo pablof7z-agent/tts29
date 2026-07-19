@@ -11,8 +11,8 @@ final class TTS29UITests: XCTestCase {
         app.launch()
 
         XCTAssertTrue(app.navigationBars["TTS29"].waitForExistence(timeout: 5))
-        let status = app.descendants(matching: .any)["tts29.status"]
-        XCTAssertTrue(status.waitForExistence(timeout: 5))
+        let menu = app.buttons["tts29.menu"]
+        XCTAssertTrue(menu.waitForExistence(timeout: 5))
     }
 
     @MainActor
@@ -20,7 +20,11 @@ final class TTS29UITests: XCTestCase {
         let app = XCUIApplication()
         app.launch()
 
-        let connection = app.buttons["tts29.connection"]
+        let menu = app.buttons["tts29.menu"]
+        XCTAssertTrue(menu.waitForExistence(timeout: 5))
+        menu.tap()
+
+        let connection = app.buttons["Connection…"]
         XCTAssertTrue(connection.waitForExistence(timeout: 5))
         connection.tap()
 

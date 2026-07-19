@@ -3,7 +3,12 @@ import SwiftUI
 public struct ContentView: View {
     @State private var store: TTS29Store
     @State private var playback = PlaybackController()
+    @State private var nowPlaying = NowPlayingCenter()
+    @State private var path = NavigationPath()
+    @State private var search = ""
+    @State private var agentFilter: Set<String> = []
     @State private var showsConnectionSettings = false
+    @Namespace private var zoom
     private let autoPlayItemID: String?
 
     public init(initialSnapshot: QueueSnapshot? = nil, autoPlayItemID: String? = nil) {
@@ -12,127 +17,101 @@ public struct ContentView: View {
     }
 
     public var body: some View {
-        NavigationStack {
-            Group {
-                if store.snapshot.items.isEmpty {
-                    ContentUnavailableView(
-                        "No spoken updates",
-                        systemImage: "waveform",
-                        description: Text("New items from the group will appear here.")
-                    )
-                } else {
-                    List(store.snapshot.items) { item in
-                        SpokenItemRow(item: item, playback: playback)
-                    }
-                    .listStyle(.plain)
-                }
-            }
+        NavigationStack(path: $path) {
+            QueueListView(
+                items: filteredItems,
+                snapshot: store.snapshot,
+                playback: playback,
+                isFiltering: isFiltering,
+                namespace: zoom,
+                onOpen: { path.append($0) },
+                onPlay: { playback.toggle($0) },
+                onEditConnection: { showsConnectionSettings = true }
+            )
             .navigationTitle("TTS29")
-            .toolbar {
-                Button("Connection", systemImage: "network") {
-                    showsConnectionSettings = true
-                }
-                .accessibilityIdentifier("tts29.connection")
+            .toolbar { toolbar }
+            .navigationDestination(for: SpokenItem.self) { item in
+                NowPlayingView(item: item, playback: playback)
+                    .zoomDestination(item.id, in: zoom)
             }
             .safeAreaInset(edge: .bottom) {
-                QueueStatus(snapshot: store.snapshot)
+                MiniPlayerView(playback: playback) { path.append($0) }
+                    .animation(.snappy, value: playback.selectedItemID)
             }
         }
+        .searchable(text: $search, prompt: "Search updates")
         .task {
+            nowPlaying.attach(to: playback)
             await store.run()
         }
-        .onChange(of: store.snapshot.items.map(PlaybackSource.init), initial: true) {
-            playback.synchronize(with: store.snapshot.items)
-            guard playback.selectedItemID == nil,
-                  let autoPlayItemID,
-                  let item = store.snapshot.items.first(where: { $0.id == autoPlayItemID }) else {
-                return
-            }
-            playback.toggle(item)
+        .onChange(of: store.snapshot.items, initial: true) { _, items in
+            playback.synchronize(with: items)
+            autoPlayIfNeeded(items)
         }
         .sheet(isPresented: $showsConnectionSettings) {
             ConnectionSettingsView()
         }
     }
-}
 
-private struct PlaybackSource: Equatable {
-    let id: String
-    let audioURL: String?
-
-    init(_ item: SpokenItem) {
-        id = item.id
-        audioURL = item.audioURL
-    }
-}
-
-private struct SpokenItemRow: View {
-    let item: SpokenItem
-    let playback: PlaybackController
-
-    var body: some View {
-        HStack(spacing: 12) {
-            VStack(alignment: .leading, spacing: 6) {
-                Text(item.subject)
-                    .font(.headline)
-                Text(item.summary)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(3)
-                if playback.selectedItemID == item.id {
-                    PlaybackProgress(playback: playback)
+    @ToolbarContentBuilder
+    private var toolbar: some ToolbarContent {
+        ToolbarItem(placement: .primaryAction) {
+            Menu {
+                if !availableAgents.isEmpty {
+                    Section("Filter by agent") {
+                        ForEach(availableAgents, id: \.self) { agent in
+                            Toggle(agent, isOn: agentBinding(agent))
+                        }
+                    }
                 }
-            }
-            Spacer(minLength: 8)
-            Button {
-                playback.toggle(item)
+                Toggle("Autoplay next", isOn: $playback.autoplayEnabled)
+                Divider()
+                Button("Connection…", systemImage: "antenna.radiowaves.left.and.right") {
+                    showsConnectionSettings = true
+                }
             } label: {
-                Image(systemName: playback.symbol(for: item))
-                    .font(.title2)
-                    .frame(width: 44, height: 44)
+                Label("Filter", systemImage: isFiltering
+                    ? "line.3.horizontal.decrease.circle.fill"
+                    : "line.3.horizontal.decrease.circle")
             }
-            .buttonStyle(.plain)
-            .disabled(item.audioURL == nil)
-            .accessibilityLabel(playback.label(for: item))
-            .accessibilityIdentifier("tts29.play.\(item.id)")
-        }
-        .padding(.vertical, 4)
-        .accessibilityElement(children: .contain)
-    }
-}
-
-private struct PlaybackProgress: View {
-    let playback: PlaybackController
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 3) {
-            ProgressView(value: playback.progress)
-                .accessibilityIdentifier("tts29.playback.progress")
-            Text(playback.statusText)
-                .font(.caption)
-                .foregroundStyle(playback.phase == .failed ? Color.red : Color.secondary)
-                .accessibilityIdentifier("tts29.playback.status")
+            .accessibilityIdentifier("tts29.menu")
         }
     }
-}
 
-private struct QueueStatus: View {
-    let snapshot: QueueSnapshot
-
-    var body: some View {
-        HStack(spacing: 8) {
-            Image(systemName: snapshot.phase.symbolName)
-            Text(snapshot.statusMessage)
-                .font(.footnote)
-            Spacer()
-            Text("\(snapshot.items.count) queued")
-                .font(.caption.monospacedDigit())
+    private var availableAgents: [String] {
+        var seen = Set<String>()
+        return store.snapshot.items.compactMap { item in
+            let name = AgentIdentity(item).displayName
+            return seen.insert(name).inserted ? name : nil
         }
-        .foregroundStyle(snapshot.phase == .failed ? Color.red : Color.secondary)
-        .padding(.horizontal)
-        .padding(.vertical, 10)
-        .background(.bar)
-        .accessibilityElement(children: .combine)
-        .accessibilityIdentifier("tts29.status")
+    }
+
+    private var isFiltering: Bool { !search.isEmpty || !agentFilter.isEmpty }
+
+    private var filteredItems: [SpokenItem] {
+        store.snapshot.items.filter { item in
+            let name = AgentIdentity(item).displayName
+            if !agentFilter.isEmpty, !agentFilter.contains(name) { return false }
+            guard !search.isEmpty else { return true }
+            let haystack = [item.subject, item.summary, item.body, name]
+                .joined(separator: " ").lowercased()
+            return haystack.contains(search.lowercased())
+        }
+    }
+
+    private func agentBinding(_ agent: String) -> Binding<Bool> {
+        Binding(
+            get: { agentFilter.contains(agent) },
+            set: { isOn in
+                if isOn { agentFilter.insert(agent) } else { agentFilter.remove(agent) }
+            }
+        )
+    }
+
+    private func autoPlayIfNeeded(_ items: [SpokenItem]) {
+        guard playback.selectedItemID == nil,
+              let autoPlayItemID,
+              let item = items.first(where: { $0.id == autoPlayItemID }) else { return }
+        playback.toggle(item)
     }
 }
