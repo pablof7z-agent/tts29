@@ -1,0 +1,4 @@
+interface:
+  display_name: "TTS29"
+  short_description: "Publish durable spoken updates and questions"
+  default_prompt: "Use $tts29 to publish a durable spoken update to the configured TTS29 group."

@@ -24,6 +24,11 @@ env_file=${TTS29_ENV_FILE:-$config_home/tts29/env}
 
 die() { echo "tts: $*" >&2; exit 1; }
 
+if [[ ${1:-} == "-h" || ${1:-} == "--help" ]]; then
+  sed -n '2,16p' "$0"
+  exit 0
+fi
+
 command -v jq >/dev/null || die "jq is required"
 [ -f "$config" ] || die "no daemon config at $config (copy daemon/example-config.json and set TTS29_CONFIG)"
 
