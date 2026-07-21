@@ -1,0 +1,189 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+config_home=${XDG_CONFIG_HOME:-$HOME/.config}
+config=${TTS29_CONFIG:-$config_home/tts29/daemon.json}
+env_file=${TTS29_ENV_FILE:-$config_home/tts29/env}
+mode=check
+
+usage() {
+  cat <<'EOF'
+Usage: scripts/setup [--check|--init]
+
+  --check  Inspect prerequisites and configuration without reading secrets.
+  --init   Create private config/env skeletons when absent, then check them.
+
+Override paths with TTS29_CONFIG and TTS29_ENV_FILE.
+EOF
+}
+
+case ${1:-} in
+  ""|--check) mode=check ;;
+  --init) mode=init ;;
+  -h|--help) usage; exit 0 ;;
+  *) usage >&2; exit 2 ;;
+esac
+
+if [[ $mode == init ]]; then
+  for parent in "$(dirname "$config")" "$(dirname "$env_file")"; do
+    if [[ ! -d $parent ]]; then
+      mkdir -p "$parent"
+      chmod 700 "$parent"
+    fi
+  done
+  if [[ ! -e $config ]]; then
+    cp "$repo_root/daemon/example-config.json" "$config"
+    echo "created daemon config skeleton: $config"
+  else
+    echo "kept existing daemon config: $config"
+  fi
+  chmod 600 "$config"
+  if [[ ! -e $env_file ]]; then
+    (umask 077 && touch "$env_file")
+    echo "created private env skeleton: $env_file"
+  else
+    echo "kept existing private env file: $env_file"
+  fi
+  chmod 600 "$env_file"
+fi
+
+failures=0
+notes=0
+
+pass() { printf 'ok: %s\n' "$*"; }
+fail() { printf 'needs setup: %s\n' "$*"; failures=$((failures + 1)); }
+note() { printf 'note: %s\n' "$*"; notes=$((notes + 1)); }
+
+for tool in jq python3 cargo rustc; do
+  if command -v "$tool" >/dev/null 2>&1; then
+    pass "$tool is available"
+  else
+    fail "$tool is missing"
+  fi
+done
+
+private_mode() {
+  local path=$1 permission
+  if permission=$(stat -f '%Lp' "$path" 2>/dev/null); then
+    :
+  elif permission=$(stat -c '%a' "$path" 2>/dev/null); then
+    :
+  else
+    return 1
+  fi
+  [[ $permission =~ ^[0-7]+$ ]] || return 1
+  (( 10#$permission % 100 == 0 ))
+}
+
+if [[ ! -f $config ]]; then
+  fail "daemon config is missing at $config (run scripts/setup --init)"
+elif ! jq -e 'type == "object"' "$config" >/dev/null 2>&1; then
+  fail "daemon config is not valid JSON: $config"
+else
+  pass "daemon config is valid JSON"
+  if private_mode "$config"; then
+    pass "daemon config is private"
+  else
+    fail "daemon config must not be accessible by group or other users"
+  fi
+
+  host=$(jq -r '.host // empty' "$config")
+  group=$(jq -r '.group_id // empty' "$config")
+  kokoro=$(jq -r '.kokoro.endpoint // empty' "$config")
+  blossom=$(jq -r '.blossom.server // empty' "$config")
+  if [[ $host == wss://* ]]; then
+    pass "NIP-29 host is configured"
+  else
+    fail "host must be a wss:// URL"
+  fi
+  if [[ -n $group ]]; then
+    pass "NIP-29 group is configured"
+  else
+    fail "group_id is missing"
+  fi
+  if [[ $kokoro == https://* && $kokoro != *example.com* ]]; then
+    pass "Kokoro HTTPS endpoint is configured"
+  else
+    fail "Kokoro endpoint must be a non-placeholder https:// URL"
+  fi
+  if [[ $blossom == https://* && $blossom != *example.com* ]]; then
+    pass "Blossom HTTPS server is configured"
+  else
+    fail "Blossom server must be a non-placeholder https:// URL"
+  fi
+fi
+
+env_has() {
+  local name=$1
+  [[ -n ${!name:-} ]] || {
+    [[ -f $env_file ]] && awk -v name="$name" '
+      BEGIN { found = 0 }
+      {
+        line = $0
+        sub(/^[[:space:]]*export[[:space:]]+/, "", line)
+        if (index(line, name "=") == 1) {
+          value = substr(line, length(name) + 2)
+          gsub(/^[[:space:]]+|[[:space:]]+$/, "", value)
+          if (value != "" && value != "\"\"" && value != "\047\047") found = 1
+        }
+      }
+      END { exit found ? 0 : 1 }
+    ' "$env_file"
+  }
+}
+
+if [[ ! -f $env_file ]]; then
+  fail "private env file is missing at $env_file (run scripts/setup --init)"
+else
+  if private_mode "$env_file"; then
+    pass "private env file is private"
+  else
+    fail "private env file must not be accessible by group or other users"
+  fi
+
+  if env_has TTS29_DAEMON_NSEC; then
+    pass "daemon identity is present (value not printed)"
+  else
+    fail "TTS29_DAEMON_NSEC is missing from the environment and private env file"
+  fi
+
+  bearer=false
+  basic_user=false
+  basic_password=false
+  env_has TTS29_KOKORO_BEARER && bearer=true
+  env_has TTS29_KOKORO_BASIC_USERNAME && basic_user=true
+  env_has TTS29_KOKORO_BASIC_PASSWORD && basic_password=true
+  if [[ $bearer == true && ( $basic_user == true || $basic_password == true ) ]]; then
+    fail "Kokoro bearer and basic authentication are both configured"
+  elif [[ $basic_user == true && $basic_password == false ]] ||
+       [[ $basic_user == false && $basic_password == true ]]; then
+    fail "Kokoro basic authentication requires both username and password"
+  elif [[ $bearer == true ]]; then
+    pass "Kokoro bearer authentication is present (value not printed)"
+  elif [[ $basic_user == true ]]; then
+    pass "Kokoro basic authentication is present (values not printed)"
+  else
+    note "no Kokoro authentication is configured; this is valid only for an unauthenticated service"
+  fi
+fi
+
+if command -v tts29d >/dev/null 2>&1 && command -v tts29 >/dev/null 2>&1; then
+  pass "tts29d and tts29 are available on PATH"
+elif [[ -x $repo_root/daemon/target/release/tts29d &&
+        -x $repo_root/daemon/target/release/tts29 ]]; then
+  pass "release binaries are built in the skill"
+else
+  note "release binaries are not built yet; scripts/tts will build them on first use"
+fi
+
+if (( failures > 0 )); then
+  printf '\nTTS29 setup is incomplete: %d required item(s) need attention.\n' "$failures"
+  printf 'Follow %s/references/setup.md without pasting secrets into chat.\n' "$repo_root"
+  exit 1
+fi
+
+printf '\nTTS29 local setup checks passed'
+(( notes == 0 )) || printf ' with %d note(s)' "$notes"
+printf '. No event was published.\n'

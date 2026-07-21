@@ -56,6 +56,21 @@ Keep the daemon identity and Kokoro credentials in the private TTS29 env file.
 Do not add secret fields to daemon configuration. Read
 [setup.md](references/setup.md) before configuring or repairing a runtime.
 
+## First-run setup
+
+When configuration or a required runtime dependency is missing, do not stop at
+reporting the missing pieces. Read [setup.md](references/setup.md), run
+`<skill-dir>/scripts/setup --check`, and lead the user through the remaining
+steps. Use `<skill-dir>/scripts/setup --init` to create the private config and
+env-file skeleton when the user wants this machine configured.
+
+Complete every safe, non-secret step directly. Ask only for infrastructure or
+identity choices that cannot be discovered. Never ask the user to paste an
+`nsec` or service credential into chat; have them enter secrets directly into
+the private env file on their machine, then verify presence without exposing
+the values. Do not publish a test item without telling the user that verification
+creates a real durable group event.
+
 ## Conditional guidance
 
 - **Questions and bounded answer waits**: Read
