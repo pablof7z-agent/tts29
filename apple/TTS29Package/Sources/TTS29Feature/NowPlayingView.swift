@@ -8,17 +8,33 @@ import SwiftUI
 struct NowPlayingView: View {
     let item: SpokenItem
     let playback: PlaybackController
+    let identitySnapshot: IdentitySnapshot
+    let submission: AnswerSubmission?
     let onOpenChild: (SpokenItem) -> Void
+    let onLogin: () -> Void
+    let onSubmitAnswer: ([QuestionAnswer]) -> Void
     private let document: TranscriptDocument
     @State private var following = true
     @State private var previewedAttachment: DurableArtifact?
     @Environment(\.openURL) private var openURL
     @Environment(\.dismiss) private var dismiss
 
-    init(item: SpokenItem, playback: PlaybackController, onOpenChild: @escaping (SpokenItem) -> Void) {
+    init(
+        item: SpokenItem,
+        playback: PlaybackController,
+        identity: IdentitySnapshot,
+        submission: AnswerSubmission?,
+        onOpenChild: @escaping (SpokenItem) -> Void,
+        onLogin: @escaping () -> Void,
+        onSubmitAnswer: @escaping ([QuestionAnswer]) -> Void
+    ) {
         self.item = item
         self.playback = playback
+        identitySnapshot = identity
+        self.submission = submission
         self.onOpenChild = onOpenChild
+        self.onLogin = onLogin
+        self.onSubmitAnswer = onSubmitAnswer
         document = TranscriptDocument(item.body)
     }
 
@@ -51,7 +67,14 @@ struct NowPlayingView: View {
                         AttachmentsRail(attachments: item.attachments, onOpen: openAttachment)
                     }
                     if item.hasQuestions {
-                        QuestionsSection(questions: item.questions, answer: item.answer)
+                        QuestionsSection(
+                            questions: item.questions,
+                            answer: item.answer,
+                            identity: identitySnapshot,
+                            submission: submission,
+                            onLogin: onLogin,
+                            onSubmit: onSubmitAnswer
+                        )
                     }
                     Color.clear.frame(height: 12)
                 }

@@ -102,6 +102,14 @@ stops the item instead of bypassing authorization.
 agent-authored submission. It must not enter daemon config, the env file,
 journals, request JSON, logs, or responses.
 
+The Apple apps use a third, separate credential: the human user's own `nsec`.
+The user enters it directly in the iOS or macOS Account sheet so the app can
+sign answers as that user. It is stored in the local device Keychain, never in
+`daemon.json` or the daemon env file. Logging out removes the Keychain item and
+detaches the app signer without deleting the queue cache. The app credential
+does not replace the daemon identity, and the daemon never needs the human
+owner's private key.
+
 ## Verify without publishing
 
 Re-run:

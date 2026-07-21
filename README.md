@@ -18,6 +18,9 @@ The Apple slice proves the architecture on iOS and macOS:
   convergent queue projection;
 - shared SwiftUI renders that projection without implementing Nostr or product
   policy, while each platform executes playback locally through AVPlayer;
+- the user logs in locally with an `nsec`; the Apple shell stores it in that
+  device's Keychain, while the Rust kernel activates the corresponding NMP
+  account and signs kind:9 answers as the user's pubkey; and
 - lifecycle cancellation withdraws the query and shuts NMP down cleanly.
 
 The producer slice provides a crash-recoverable daemon plus thin local and
@@ -67,6 +70,13 @@ xcodebuildmcp macos build-and-run \
 
 The Rust dependency is pinned to an exact NMP revision in `core/Cargo.toml`.
 Building TTS29 never edits the NMP checkout or repository.
+
+In either Apple app, open the toolbar menu and choose **Log In…**. Enter the
+human user's `nsec` directly in the app; do not put it in daemon configuration.
+The login persists only in that device's Keychain. **Log Out** removes the
+Keychain item and detaches the signer, while leaving the reconstructible queue
+cache intact. The daemon continues to use its separate daemon-owned key for
+group creation and administration.
 
 The executable event contract is documented in [docs/protocol.md](docs/protocol.md).
 The intentional hard cut from the paired-device product is documented in

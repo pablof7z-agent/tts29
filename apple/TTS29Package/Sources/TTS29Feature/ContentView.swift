@@ -8,6 +8,7 @@ public struct ContentView: View {
     @State private var search = ""
     @State private var agentFilter: Set<String> = []
     @State private var showsConnectionSettings = false
+    @State private var showsAccount = false
     @Namespace private var zoom
     @State private var didAutoOpen = false
     private let autoPlayItemID: String?
@@ -42,7 +43,15 @@ public struct ContentView: View {
                 // answers, and reactions stay fresh in the pushed surface.
                 if let live = PlaybackController.flatten(store.snapshot.items)
                     .first(where: { $0.id == id }) {
-                    NowPlayingView(item: live, playback: playback, onOpenChild: openChild)
+                    NowPlayingView(
+                        item: live,
+                        playback: playback,
+                        identity: store.snapshot.identity,
+                        submission: store.snapshot.answerSubmission(for: live.id),
+                        onOpenChild: openChild,
+                        onLogin: { showsAccount = true },
+                        onSubmitAnswer: { store.submitAnswer(itemID: live.id, answers: $0) }
+                    )
                         .zoomDestination(id, in: zoom)
                 } else {
                     ContentUnavailableView("Update unavailable", systemImage: "waveform")
@@ -67,6 +76,13 @@ public struct ContentView: View {
         .sheet(isPresented: $showsConnectionSettings) {
             ConnectionSettingsView()
         }
+        .sheet(isPresented: $showsAccount) {
+            AccountView(
+                identity: store.snapshot.identity,
+                onLogin: store.login,
+                onLogout: store.logout
+            )
+        }
     }
 
     @ToolbarContentBuilder
@@ -82,6 +98,9 @@ public struct ContentView: View {
                 }
                 Toggle("Autoplay next", isOn: $playback.autoplayEnabled)
                 Divider()
+                Button(accountTitle, systemImage: accountSymbol) {
+                    showsAccount = true
+                }
                 Button("Connection…", systemImage: "antenna.radiowaves.left.and.right") {
                     showsConnectionSettings = true
                 }
@@ -92,6 +111,16 @@ public struct ContentView: View {
             }
             .accessibilityIdentifier("tts29.menu")
         }
+    }
+
+    private var accountTitle: String {
+        store.snapshot.identity.phase == .signedIn
+            ? store.snapshot.identity.shortPubkey ?? "Account…"
+            : "Log In…"
+    }
+
+    private var accountSymbol: String {
+        store.snapshot.identity.phase == .signedIn ? "person.crop.circle.fill" : "person.crop.circle"
     }
 
     private var availableAgents: [String] {

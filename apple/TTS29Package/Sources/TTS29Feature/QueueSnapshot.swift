@@ -139,10 +139,15 @@ public struct QueueSnapshot: Codable, Sendable {
     public let items: [SpokenItem]
     public let evidence: QueueEvidence
     public let error: String?
+    public let identity: IdentitySnapshot
+    public let credentialRequest: CredentialRequest?
+    public let answerSubmissions: [AnswerSubmission]
 
     enum CodingKeys: String, CodingKey {
-        case phase, relay, items, evidence, error
+        case phase, relay, items, evidence, error, identity
         case groupID = "group_id"
+        case credentialRequest = "credential_request"
+        case answerSubmissions = "answer_submissions"
     }
 
     public static let initial = QueueSnapshot(
@@ -151,7 +156,10 @@ public struct QueueSnapshot: Codable, Sendable {
         groupID: "",
         items: [],
         evidence: QueueEvidence(sourceCount: 0, shortfallCount: 0),
-        error: nil
+        error: nil,
+        identity: .signedOut,
+        credentialRequest: nil,
+        answerSubmissions: []
     )
 
     public init(
@@ -160,7 +168,10 @@ public struct QueueSnapshot: Codable, Sendable {
         groupID: String,
         items: [SpokenItem],
         evidence: QueueEvidence,
-        error: String?
+        error: String?,
+        identity: IdentitySnapshot = .signedOut,
+        credentialRequest: CredentialRequest? = nil,
+        answerSubmissions: [AnswerSubmission] = []
     ) {
         self.phase = phase
         self.relay = relay
@@ -168,6 +179,33 @@ public struct QueueSnapshot: Codable, Sendable {
         self.items = items
         self.evidence = evidence
         self.error = error
+        self.identity = identity
+        self.credentialRequest = credentialRequest
+        self.answerSubmissions = answerSubmissions
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        phase = try container.decode(KernelPhase.self, forKey: .phase)
+        relay = try container.decode(String.self, forKey: .relay)
+        groupID = try container.decode(String.self, forKey: .groupID)
+        items = try container.decode([SpokenItem].self, forKey: .items)
+        evidence = try container.decode(QueueEvidence.self, forKey: .evidence)
+        error = try container.decodeIfPresent(String.self, forKey: .error)
+        identity = try container.decodeIfPresent(IdentitySnapshot.self, forKey: .identity)
+            ?? .signedOut
+        credentialRequest = try container.decodeIfPresent(
+            CredentialRequest.self,
+            forKey: .credentialRequest
+        )
+        answerSubmissions = try container.decodeIfPresent(
+            [AnswerSubmission].self,
+            forKey: .answerSubmissions
+        ) ?? []
+    }
+
+    public func answerSubmission(for itemID: String) -> AnswerSubmission? {
+        answerSubmissions.first { $0.itemId == itemID }
     }
 
     public var statusMessage: String {

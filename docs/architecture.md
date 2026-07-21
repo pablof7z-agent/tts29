@@ -5,10 +5,11 @@
 | Fact or behavior | Single owner |
 | --- | --- |
 | Canonical Nostr events, relay query, evidence, routing, signing, receipts | NMP |
-| Spoken-item interpretation, queue ordering, bounded screen projection | TTS29 Rust kernel |
+| Spoken-item interpretation, queue ordering, answer policy, bounded screen projection | TTS29 Rust kernel |
 | Navigation state and product actions | TTS29 Rust kernel |
 | SwiftUI rendering and accessibility | Apple shell |
 | Raw device-local relay/group bootstrap preferences | Apple storage capability |
+| User-secret persistence and deletion | Apple Keychain capability |
 | Audio session and playback execution | Apple capability bridge |
 | Current device position, pause state, autoplay barrier | Device-local state |
 
@@ -22,6 +23,17 @@ launch. They are bootstrap capability input, not a mirror of queue or Nostr
 state. Swift does not interpret the values or use them to contact a relay; the
 Rust kernel parses them, starts NMP, and reports invalid configuration through
 the bounded lifecycle snapshot.
+
+The human user's `nsec` crosses a dedicated secret FFI function and is never
+serialized into an action or snapshot. Rust registers and activates that exact
+NMP account. Swift executes only kernel-requested Keychain store/delete
+operations and returns raw capability success or failure; Rust owns the login
+state transition. A submitted answer is a semantic action containing bounded
+question IDs and values. Rust validates it against the current projection,
+composes the kind:9 answer, and NMP signs and publishes it as the active user's
+pubkey. Logout deletes the Keychain credential before Rust removes the NMP
+account. The daemon identity is separate and retains group-administration
+responsibility.
 
 ## First slice data flow
 
@@ -50,6 +62,8 @@ handle to fire, unblocking the query owner before NMP engine shutdown.
 - Relay events enter only through the NMP subscription.
 - Relay acquisition state enters only through NMP scoped evidence.
 - Application lifecycle cancellation enters through the FFI stop action.
+- User credentials enter through the dedicated login capability boundary;
+  Keychain results return as raw capability input to the Rust state machine.
 - Apple audio callbacks enter only the device-local playback controller and are
   never projected as shared queue facts.
 
@@ -73,3 +87,8 @@ The scanner also reports `D4/native-cache-smell` for the `UserDefaults` calls
 in `ConnectionSettings.swift`. Those keys are the source of raw device-local
 bootstrap input for the next kernel launch. They do not cache or mirror any
 Rust-owned projection, event, routing decision, or protocol fact.
+
+It reports `D6/no-ffi-errors` on `KeychainCredentialVault` because the native
+capability uses Swift errors internally. Those errors do not become app policy
+or cross FFI as thrown values: Swift reduces them to raw capability results and
+the Rust kernel projects the resulting account state and user-facing error.

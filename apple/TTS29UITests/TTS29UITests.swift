@@ -43,6 +43,32 @@ final class TTS29UITests: XCTestCase {
     }
 
     @MainActor
+    func testNsecLoginAndLogout() throws {
+        let app = XCUIApplication()
+        app.launch()
+
+        let menu = app.buttons["tts29.menu"]
+        XCTAssertTrue(menu.waitForExistence(timeout: 5))
+        menu.tap()
+        let account = app.buttons["Log In…"]
+        XCTAssertTrue(account.waitForExistence(timeout: 5))
+        account.tap()
+
+        let field = app.secureTextFields["tts29.account.nsec"]
+        XCTAssertTrue(field.waitForExistence(timeout: 5))
+        field.tap()
+        field.typeText(Self.disposableTestNsec)
+        let login = app.buttons["tts29.account.login"]
+        XCTAssertTrue(login.isEnabled)
+        login.tap()
+
+        let logout = app.buttons["tts29.account.logout"]
+        XCTAssertTrue(logout.waitForExistence(timeout: 5))
+        logout.tap()
+        XCTAssertTrue(field.waitForExistence(timeout: 5))
+    }
+
+    @MainActor
     func testProjectedAudioCanStartInTheSimulator() throws {
         let app = XCUIApplication()
         app.launchEnvironment["TTS29_UI_AUDIO_BASE64"] = Self.waveFixture.base64EncodedString()
@@ -85,6 +111,11 @@ final class TTS29UITests: XCTestCase {
         bytes.append(Data(count: Int(dataSize)))
         return bytes
     }
+
+    // Public, deterministic test-only key. It is used only in the simulator
+    // Keychain and never publishes an event.
+    private static let disposableTestNsec =
+        "nsec1qyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqstywftw"
 }
 
 private extension Data {
