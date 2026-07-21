@@ -32,15 +32,9 @@ fi
 [[ $(stat -f '%Lp' "$env_file") == 600 ]]
 grep -Fq "Kokoro endpoint must be a non-placeholder" "$output"
 
-printf "TTS29_DAEMON_NSEC=''\n" >"$env_file"
-if run_setup --check; then
-  echo "empty daemon identity unexpectedly passed" >&2
-  exit 1
-fi
-grep -Fq "TTS29_DAEMON_NSEC is missing" "$output"
-
 jq '.kokoro.endpoint = "https://speech.example.net/v1/audio/speech"
-  | .blossom.server = "https://blossom.example.net"' "$config" >"$config.next"
+  | .blossom.server = "https://blossom.example.net"
+  | .owner_pubkey = ("a" * 64)' "$config" >"$config.next"
 mv "$config.next" "$config"
 chmod 600 "$config"
 printf "TTS29_DAEMON_NSEC='%s'\n" "$secret_marker" >"$env_file"
@@ -48,6 +42,7 @@ chmod 600 "$env_file"
 
 run_setup --check
 grep -Fq "TTS29 local setup checks passed" "$output"
+grep -Fq "daemon identity will be generated privately on first start" "$output"
 if grep -Fq "$secret_marker" "$output"; then
   echo "setup check exposed a secret value" >&2
   exit 1

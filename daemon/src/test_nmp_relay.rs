@@ -9,7 +9,90 @@ use nmp::{Engine, EngineConfig, Kind, RelayUrl, SignEventRequest, Tag, Timestamp
 use serde_json::{json, Value};
 use tungstenite::{accept, Message};
 
+use crate::group_bootstrap::bootstrap_group;
 use crate::{AuthorizationStep, NmpPublisher, Publisher};
+
+#[test]
+fn absent_group_is_created_and_owner_is_promoted_by_the_daemon() {
+    let relay = TestNmpRelay::start(true);
+    let (engine, daemon_author) = engine_for();
+    let owner = nmp::PublicKey::parse(&"2".repeat(64)).unwrap();
+
+    let evidence = bootstrap_group(
+        &engine,
+        relay.url.clone(),
+        "tts",
+        daemon_author,
+        owner,
+        1_700_000_000,
+        Duration::from_secs(5),
+    )
+    .unwrap();
+    let creation = relay.event.recv_timeout(Duration::from_secs(5)).unwrap();
+    let promotion = relay.event.recv_timeout(Duration::from_secs(5)).unwrap();
+
+    assert_eq!(creation["kind"], 9_007);
+    assert_eq!(creation["pubkey"], daemon_author.to_hex());
+    assert_eq!(promotion["kind"], 9_000);
+    assert_eq!(promotion["pubkey"], daemon_author.to_hex());
+    assert!(has_role_tag(&promotion, &owner.to_hex(), "admin"));
+    assert!(evidence.group_created_event_id.is_some());
+    assert!(evidence.owner_admin_event_id.is_some());
+    engine.shutdown();
+    relay.finish();
+}
+
+#[test]
+fn group_creation_rejection_stops_owner_promotion() {
+    let relay = TestNmpRelay::start(false);
+    let (engine, daemon_author) = engine_for();
+    let owner = nmp::PublicKey::parse(&"2".repeat(64)).unwrap();
+
+    let error = bootstrap_group(
+        &engine,
+        relay.url.clone(),
+        "tts",
+        daemon_author,
+        owner,
+        1_700_000_000,
+        Duration::from_secs(5),
+    )
+    .unwrap_err();
+
+    assert!(error.contains("group creation was rejected by"));
+    assert_eq!(
+        relay.event.recv_timeout(Duration::from_secs(5)).unwrap()["kind"],
+        9_007
+    );
+    assert!(relay.event.try_recv().is_err());
+    engine.shutdown();
+    relay.finish();
+}
+
+#[test]
+fn converged_group_bootstrap_emits_no_administrative_writes() {
+    let relay = TestNmpRelay::start(true);
+    let (engine, daemon_author) = engine_for();
+    let owner = nmp::PublicKey::parse(&"2".repeat(64)).unwrap();
+    seed_admins(&engine, &relay, &daemon_author, &owner);
+
+    let evidence = bootstrap_group(
+        &engine,
+        relay.url.clone(),
+        "tts",
+        daemon_author,
+        owner,
+        1_700_000_000,
+        Duration::from_secs(5),
+    )
+    .unwrap();
+
+    assert!(evidence.group_created_event_id.is_none());
+    assert!(evidence.owner_admin_event_id.is_none());
+    assert!(relay.event.try_recv().is_err());
+    engine.shutdown();
+    relay.finish();
+}
 
 #[test]
 fn membership_repair_uses_the_daemon_and_selected_nmp_host() {
@@ -147,12 +230,52 @@ fn seed_group(engine: &Engine, relay: &TestNmpRelay, member: &str) -> String {
     event_id
 }
 
+fn seed_admins(
+    engine: &Engine,
+    relay: &TestNmpRelay,
+    daemon: &nmp::PublicKey,
+    owner: &nmp::PublicKey,
+) {
+    let daemon_hex = daemon.to_hex();
+    let owner_hex = owner.to_hex();
+    let event = engine
+        .sign_event(SignEventRequest {
+            created_at: Timestamp::from(1_699_999_999u64),
+            kind: Kind::from(39_001u16),
+            tags: vec![
+                Tag::parse(["d", "tts"]).unwrap(),
+                Tag::parse(["p", daemon_hex.as_str(), "admin"]).unwrap(),
+                Tag::parse(["p", owner_hex.as_str(), "admin"]).unwrap(),
+            ],
+            content: String::new(),
+        })
+        .unwrap()
+        .recv()
+        .unwrap();
+    relay
+        .fixture
+        .send(serde_json::to_value(event).unwrap())
+        .unwrap();
+}
+
 fn has_tag(event: &Value, name: &str, value: &str) -> bool {
     event["tags"].as_array().is_some_and(|tags| {
         tags.iter().any(|tag| {
             tag.as_array().is_some_and(|parts| {
                 parts.first() == Some(&Value::String(name.into()))
                     && parts.get(1) == Some(&Value::String(value.into()))
+            })
+        })
+    })
+}
+
+fn has_role_tag(event: &Value, pubkey: &str, role: &str) -> bool {
+    event["tags"].as_array().is_some_and(|tags| {
+        tags.iter().any(|tag| {
+            tag.as_array().is_some_and(|parts| {
+                parts.first() == Some(&Value::String("p".into()))
+                    && parts.get(1) == Some(&Value::String(pubkey.into()))
+                    && parts.get(2) == Some(&Value::String(role.into()))
             })
         })
     })
@@ -241,10 +364,12 @@ fn handle_connection(
         let message: Value = serde_json::from_str(text.as_str()).unwrap();
         match message[0].as_str() {
             Some("REQ") => {
-                let membership_request = message[2]["kinds"]
-                    .as_array()
-                    .is_some_and(|kinds| kinds.contains(&json!(39_002)));
-                if membership_request {
+                let state_request = message[2]["kinds"].as_array().is_some_and(|kinds| {
+                    kinds.contains(&json!(39_000))
+                        || kinds.contains(&json!(39_001))
+                        || kinds.contains(&json!(39_002))
+                });
+                if state_request {
                     if let Ok(event) = fixtures.lock().unwrap().try_recv() {
                         socket
                             .send(Message::text(

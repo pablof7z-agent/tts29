@@ -7,6 +7,8 @@ use nmp::{Engine, EngineConfig, RelayUrl};
 use tts29_producer_api::{SpokenTree, TreeAttachment};
 use tts29_protocol::{AttachLink, Question};
 
+use crate::daemon_identity::install_daemon_identity;
+use crate::group_bootstrap::{bootstrap_group, GroupBootstrapEvidence};
 use crate::identity::IdentityRegistry;
 use crate::{
     AnswerWaitCancel, AnswerWaitError, AnswerWaiter, BlossomArtifactUploader, BlossomUploadConfig,
@@ -21,9 +23,11 @@ pub struct ProductionConfig {
     pub journal_root: PathBuf,
     pub work_root: PathBuf,
     pub nmp_store_path: Option<String>,
-    pub secret_key: String,
+    pub daemon_identity_path: PathBuf,
+    pub secret_key_override: Option<String>,
     pub host: String,
     pub group_id: String,
+    pub owner_pubkey: String,
     pub default_voice: String,
     pub kokoro: KokoroConfig,
     pub blossom: BlossomUploadConfig,
@@ -40,6 +44,7 @@ pub struct ProductionProducer {
     group_id: String,
     clock: Arc<dyn Clock + Send + Sync>,
     answer_waiter: AnswerWaiter,
+    bootstrap: GroupBootstrapEvidence,
 }
 
 /// Evidence for one published spoken tree: the root event and every narrated
@@ -64,6 +69,8 @@ impl ProductionProducer {
         }
         let host = RelayUrl::parse(&config.host)
             .map_err(|_| "configured NIP-29 host is invalid".to_string())?;
+        let owner_key = nmp::PublicKey::parse(&config.owner_pubkey)
+            .map_err(|_| "configured owner public key is invalid".to_string())?;
         let engine = Arc::new(
             Engine::new(EngineConfig {
                 store_path: config.nmp_store_path,
@@ -71,13 +78,24 @@ impl ProductionProducer {
             })
             .map_err(|error| format!("NMP engine refused startup: {error}"))?,
         );
-        let account = engine
-            .add_account(&config.secret_key)
-            .map_err(|error| format!("NMP producer identity was refused: {error}"))?;
+        let account = install_daemon_identity(
+            &engine,
+            &config.daemon_identity_path,
+            config.secret_key_override.as_deref(),
+        )?;
         let author_key = account.public_key();
         engine
             .set_active_account(Some(author_key))
             .map_err(|error| format!("NMP producer identity could not activate: {error}"))?;
+        let bootstrap = bootstrap_group(
+            &engine,
+            host.clone(),
+            &config.group_id,
+            author_key,
+            owner_key,
+            clock.unix_millis() / 1_000,
+            config.receipt_timeout,
+        )?;
 
         let synthesizer = KokoroSynthesizer::new(config.kokoro)?;
         let uploader = BlossomArtifactUploader::new(
@@ -120,11 +138,16 @@ impl ProductionProducer {
             group_id: config.group_id,
             clock,
             answer_waiter,
+            bootstrap,
         })
     }
 
     pub fn author(&self) -> &str {
         &self.author
+    }
+
+    pub fn bootstrap_evidence(&self) -> &GroupBootstrapEvidence {
+        &self.bootstrap
     }
 
     pub fn admit(

@@ -107,10 +107,10 @@ TTS29_LIVE_AUDIO_FILE=/path/to/disposable.mp3 \
   scripts/run-live-relay-e2e.sh
 ```
 
-The runner reads the daemon identity only from `TTS29_DAEMON_NSEC` or
-`AGENT_NSEC`, emits public JSON evidence, bounds every network wait, and removes
-its private local state and loopback synthesis fixture on exit. The recorded
-real run is in [docs/live-relay-verification.md](docs/live-relay-verification.md).
+The runner generates a disposable daemon identity, emits only public JSON
+evidence, bounds every network wait, and removes its private local state and
+loopback synthesis fixture on exit. The recorded real run is in
+[docs/live-relay-verification.md](docs/live-relay-verification.md).
 
 ## Work tracking
 

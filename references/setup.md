@@ -13,8 +13,8 @@ the user through setup, not merely repeat the list of requirements.
    it never invents infrastructure or secret values and never overwrites an
    existing file.
 4. Discover safe values from the current machine and the user's stated target.
-   Ask the user only for the missing host/group, service endpoints, and daemon
-   identity authority. Explain why each missing value is needed.
+   Ask the user only for the missing host/group, service endpoints, and public
+   owner key. Explain why each missing value is needed.
 5. Configure public values directly. For secrets, ask the user to edit the
    private env file locally. Never ask them to paste a secret into chat.
 6. Re-run `scripts/setup --check`, resolve every actionable failure, and tell
@@ -31,8 +31,8 @@ The installed skill contains the TTS29 source and launcher. First use requires:
 
 - `jq`, `python3`, Rust, and Cargo;
 - a private daemon configuration;
-- a daemon Nostr identity with authority to add publishers to the selected
-  NIP-29 group;
+- a daemon-owned Nostr identity generated privately on first start;
+- the human owner's public npub or hex key;
 - a production HTTPS Kokoro endpoint; and
 - a public HTTPS Blossom server.
 
@@ -47,6 +47,7 @@ The default files are:
 ```text
 ~/.config/tts29/daemon.json
 ~/.config/tts29/env
+~/.config/tts29/daemon.key
 ```
 
 `scripts/setup --init` creates their parent directory with mode `0700`, copies
@@ -58,6 +59,9 @@ Edit the public config values:
 
 - `host`: the exact `wss://` NIP-29 host;
 - `group_id`: the group shared by producers and players;
+- `owner_pubkey`: the human owner's public npub or 64-character hex key;
+- `daemon_identity_path`: where the daemon generates and reuses its private
+  identity (normally `daemon.key` beside the config);
 - `kokoro.endpoint`: the production `https://` OpenAI-compatible speech
   endpoint;
 - `blossom.server`: the public `https://` upload server; and
@@ -70,10 +74,9 @@ reported as incomplete.
 ## Enter secrets locally
 
 Have the user open the env file in a local editor whose contents are not sent
-to the agent transcript. It may define:
+to the agent transcript when Kokoro authentication is required. It may define:
 
 ```bash
-TTS29_DAEMON_NSEC='nsec1...'
 TTS29_KOKORO_BEARER='...'
 ```
 
@@ -82,10 +85,13 @@ Kokoro may instead use the mutually dependent
 basic authentication are mutually exclusive. A service that needs no auth may
 omit both. Keep the file at mode `0600`.
 
-The daemon identity must be an administrator able to manage membership on the
-configured host/group. It checks each request author through NMP and adds a
-missing member before publishing. Host rejection or ambiguous administrative
-delivery stops the item instead of bypassing authorization.
+`TTS29_DAEMON_NSEC` is an optional deployment override for the daemon-owned
+identity. It is never the human owner's key and ordinary setup does not need it.
+For a missing group, the daemon creates the group and adds `owner_pubkey` with
+the `admin` role. For an existing group, the daemon identity must already be an
+administrator. It checks each request author through NMP and adds a missing
+member before publishing. Host rejection or ambiguous administrative delivery
+stops the item instead of bypassing authorization.
 
 `AGENT_NSEC` is different: it belongs only to the caller environment for one
 agent-authored submission. It must not enter daemon config, the env file,
@@ -100,8 +106,8 @@ Re-run:
 ```
 
 A ready result proves local prerequisites, non-placeholder public config,
-private file modes, and presence of the daemon identity. It does not prove
-that the credentials are valid, the daemon identity has host authority, the
+private file modes, and the owner public key. It does not prove that service
+credentials are valid, the daemon identity has host authority on an existing group, the
 services are reachable, or a device can play audio.
 
 ## First real verification

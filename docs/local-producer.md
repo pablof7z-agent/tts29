@@ -18,8 +18,8 @@ bounded request, shut NMP down, and remove the owned socket.
 `scripts/tts` is a thin launcher that makes the CLI just work: it ensures the
 resident daemon is up (starting `tts29d` if the socket is dead and waiting for
 it), then forwards the update to `tts29`. It reads the daemon config from
-`TTS29_CONFIG` or `~/.config/tts29/daemon.json`, sources secrets
-(`TTS29_DAEMON_NSEC`, Kokoro credentials) from `TTS29_ENV_FILE` or
+`TTS29_CONFIG` or `~/.config/tts29/daemon.json`, sources Kokoro credentials and
+an optional daemon identity override from `TTS29_ENV_FILE` or
 `~/.config/tts29/env`, and signs the update as the caller's `AGENT_NSEC`.
 
 ```bash
@@ -37,12 +37,13 @@ initializes NMP itself.
 
 ## Configure and start the daemon
 
-Copy `daemon/example-config.json` and replace the Kokoro and Blossom endpoints.
-Relative state paths resolve beside the config file. Secrets are intentionally
+Copy `daemon/example-config.json`, set `owner_pubkey` to your public npub or hex
+key, and replace the Kokoro and Blossom endpoints. Relative state and identity
+paths resolve beside the config file. On first start the daemon creates its own
+private identity file; no personal `nsec` is needed. Secrets are intentionally
 not valid config fields:
 
 ```bash
-export TTS29_DAEMON_NSEC='nsec1...'
 export TTS29_KOKORO_BEARER='...'
 cargo run --manifest-path daemon/Cargo.toml --bin tts29d -- \
   --config daemon/example-config.json
@@ -50,11 +51,14 @@ cargo run --manifest-path daemon/Cargo.toml --bin tts29d -- \
 
 Kokoro can instead use `TTS29_KOKORO_BASIC_USERNAME` and
 `TTS29_KOKORO_BASIC_PASSWORD`. Authentication modes are mutually exclusive.
-The daemon key, Kokoro credentials, and request-only agent key have no config,
-journal, response, or debug representation.
+`TTS29_DAEMON_NSEC` may override the generated daemon identity for controlled
+deployments. The daemon key, Kokoro credentials, and request-only agent key
+have no journal, response, or debug representation.
 
-The configured daemon identity must have authority to add publishers to the
-NIP-29 group. Before spoken publication, the daemon reads current admin/member
+For a missing group, the daemon creates it and adds `owner_pubkey` with the
+`admin` role. For an existing group, its daemon identity must already be an
+administrator; otherwise startup fails explicitly. Before spoken publication,
+the daemon reads current admin/member
 state from the selected host through NMP. An existing member proceeds without
 an administrative write; a missing request author is added through the
 daemon-owned identity and the public NMP NIP-29 group composer. Host refusal or

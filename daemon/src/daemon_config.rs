@@ -24,8 +24,11 @@ struct FileConfig {
     journal_root: PathBuf,
     work_root: PathBuf,
     nmp_store_path: Option<PathBuf>,
+    #[serde(default = "default_daemon_identity_path")]
+    daemon_identity_path: PathBuf,
     host: String,
     group_id: String,
+    owner_pubkey: String,
     kokoro: KokoroFileConfig,
     blossom: BlossomFileConfig,
     #[serde(default = "default_receipt_timeout")]
@@ -81,7 +84,7 @@ pub fn load_daemon_config(path: impl AsRef<Path>) -> Result<LoadedDaemonConfig, 
 
     let base = path.parent().unwrap_or_else(|| Path::new("."));
     let socket_path = resolve(base, file.socket_path);
-    let secret_key = required_env("TTS29_DAEMON_NSEC")?;
+    let secret_key_override = optional_env("TTS29_DAEMON_NSEC")?;
     let kokoro_auth = kokoro_auth()?;
     let mut kokoro = KokoroConfig::new(file.kokoro.endpoint);
     kokoro.auth = kokoro_auth;
@@ -111,9 +114,11 @@ pub fn load_daemon_config(path: impl AsRef<Path>) -> Result<LoadedDaemonConfig, 
             journal_root: resolve(base, file.journal_root),
             work_root: resolve(base, file.work_root),
             nmp_store_path,
-            secret_key,
+            daemon_identity_path: resolve(base, file.daemon_identity_path),
+            secret_key_override,
             host: file.host,
             group_id: file.group_id,
+            owner_pubkey: file.owner_pubkey,
             default_voice: file.default_voice,
             kokoro,
             blossom,
@@ -132,10 +137,6 @@ fn kokoro_auth() -> Result<KokoroAuth, String> {
         (None, Some(username), Some(password)) => Ok(KokoroAuth::Basic { username, password }),
         _ => Err("Kokoro authentication environment is incomplete or ambiguous".into()),
     }
-}
-
-fn required_env(name: &str) -> Result<String, String> {
-    optional_env(name)?.ok_or_else(|| format!("required environment variable {name} is missing"))
 }
 
 fn optional_env(name: &str) -> Result<Option<String>, String> {
@@ -177,6 +178,10 @@ fn resolve(base: &Path, value: PathBuf) -> PathBuf {
 
 fn default_receipt_timeout() -> u64 {
     30
+}
+
+fn default_daemon_identity_path() -> PathBuf {
+    PathBuf::from("daemon.key")
 }
 
 fn default_voice() -> String {

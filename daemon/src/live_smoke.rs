@@ -7,8 +7,7 @@ use serde::Serialize;
 use tts29_protocol::{ParsedEvent, Question, QuestionAnswer, QuestionKind, QuestionOption};
 
 use crate::live_network::{
-    create_group, observe_exact, publish_answer, unix_seconds, verify_audio, AudioEvidence,
-    SourceEvidence,
+    observe_exact, publish_answer, unix_seconds, verify_audio, AudioEvidence, SourceEvidence,
 };
 use crate::{
     load_daemon_config, serve_one, submit_local_tree, submit_local_with_timeout, AnswerWaitResult,
@@ -45,14 +44,10 @@ pub fn run_live_relay_smoke(path: impl AsRef<Path>) -> Result<LiveRelayEvidence,
     let group_id = loaded.production.group_id.clone();
     let creates_group = std::env::var("TTS29_LIVE_CREATE_GROUP").as_deref() == Ok("1");
     if creates_group {
-        loaded.production.secret_key = disposable_secret();
+        let daemon_secret = disposable_secret();
+        loaded.production.owner_pubkey = public_key_for(&daemon_secret)?;
+        loaded.production.secret_key_override = Some(daemon_secret);
     }
-    let daemon_secret = loaded.production.secret_key.clone();
-    let group_creation = if creates_group {
-        Some(create_group(&relay, &group_id, &daemon_secret)?)
-    } else {
-        None
-    };
     let request_secret = disposable_secret();
     let request_id = format!("live-e2e-{}", unix_seconds()?);
     let request = live_request(&request_id, &group_id);
@@ -64,6 +59,8 @@ pub fn run_live_relay_smoke(path: impl AsRef<Path>) -> Result<LiveRelayEvidence,
     };
 
     let mut producer = ProductionProducer::open(loaded.production)?;
+    let group_creation_receipt_id = producer.bootstrap_evidence().group_creation_receipt_id;
+    let group_creation_event_id = producer.bootstrap_evidence().group_created_event_id.clone();
     let listener = PrivateUnixListener::bind(&loaded.socket_path)
         .map_err(|error| format!("live daemon socket could not bind: {error}"))?;
     let socket_path = listener.path().to_path_buf();
@@ -104,8 +101,8 @@ pub fn run_live_relay_smoke(path: impl AsRef<Path>) -> Result<LiveRelayEvidence,
         relay: relay_text,
         group_id,
         request_id,
-        group_creation_receipt_id: group_creation.as_ref().map(|value| value.0),
-        group_creation_event_id: group_creation.map(|value| value.1),
+        group_creation_receipt_id,
+        group_creation_event_id,
         item_receipt_id,
         item_event_id,
         item_author: item.author.clone(),
@@ -141,13 +138,15 @@ pub fn run_tree_relay_smoke(path: impl AsRef<Path>) -> Result<TreeSmokeEvidence,
     let group_id =
         std::env::var("TTS29_TREE_GROUP").unwrap_or_else(|_| format!("tts29-tree-{stamp}"));
     loaded.production.group_id = group_id.clone();
-    let relay_url = RelayUrl::parse(&relay).map_err(|_| "tree relay URL is invalid".to_string())?;
-    create_group(&relay_url, &group_id, &loaded.production.secret_key)?;
+    let daemon_secret = disposable_secret();
+    loaded.production.owner_pubkey = public_key_for(&daemon_secret)?;
+    loaded.production.secret_key_override = Some(daemon_secret);
     let dir = std::env::temp_dir().join(format!("tts29-tree-{stamp}"));
     std::fs::create_dir_all(&dir).map_err(|error| format!("tree temp dir failed: {error}"))?;
     let write = |name: &str, body: &str| -> Result<String, String> {
         let file = dir.join(name);
-        std::fs::write(&file, body).map_err(|error| format!("tree message write failed: {error}"))?;
+        std::fs::write(&file, body)
+            .map_err(|error| format!("tree message write failed: {error}"))?;
         file.to_str()
             .map(str::to_string)
             .ok_or_else(|| "tree message path is not UTF-8".to_string())
@@ -210,7 +209,9 @@ pub fn run_tree_relay_smoke(path: impl AsRef<Path>) -> Result<TreeSmokeEvidence,
             ..
         } => (root_event_id, child_event_ids),
         LocalPublishResponse::Error { code, message, .. } => {
-            return Err(format!("tree daemon refused publication ({code}): {message}"));
+            return Err(format!(
+                "tree daemon refused publication ({code}): {message}"
+            ));
         }
         LocalPublishResponse::Published { .. } => {
             return Err("tree daemon returned a single-item response for a tree".into());
@@ -228,6 +229,17 @@ fn disposable_secret() -> String {
     let mut bytes = [0u8; 32];
     OsRng.fill_bytes(&mut bytes);
     bytes.iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
+fn public_key_for(secret: &str) -> Result<String, String> {
+    let engine = nmp::Engine::new(nmp::EngineConfig::default())
+        .map_err(|error| format!("disposable NMP identity engine failed: {error}"))?;
+    let account = engine
+        .add_account(secret)
+        .map_err(|error| format!("disposable NMP identity was refused: {error}"))?;
+    let public_key = account.public_key().to_hex();
+    engine.shutdown();
+    Ok(public_key)
 }
 
 fn published(response: LocalPublishResponse) -> Result<(u64, String), String> {
@@ -272,6 +284,6 @@ fn live_request(request_id: &str, group_id: &str) -> ProducerRequest {
                 description: None,
             }],
         }],
-    attach: None,
+        attach: None,
     }
 }

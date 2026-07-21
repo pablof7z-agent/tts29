@@ -5,9 +5,8 @@ use std::time::Duration;
 
 use nmp::{
     AccessContext, Binding, Demand, Engine, EngineConfig, Filter, LiveQuery, ReceiptId,
-    ReceiptReattachment, RelayUrl, SourceAuthority, Timestamp, Window, WriteStatus,
+    ReceiptReattachment, RelayUrl, SourceAuthority, Window, WriteStatus,
 };
-use nmp_nip29::{compose_group_send, GroupTimelineEvidence};
 use reqwest::blocking::Client;
 use reqwest::redirect::Policy;
 use serde::Serialize;
@@ -189,39 +188,6 @@ pub(crate) fn publish_answer(
     let event_id = await_ack(&engine, receipt_id, host, "answer")?;
     engine.shutdown();
     Ok((receipt_id, event_id, author.to_hex()))
-}
-
-pub(crate) fn create_group(
-    host: &RelayUrl,
-    group_id: &str,
-    secret: &str,
-) -> Result<(u64, String), String> {
-    let engine = Engine::new(EngineConfig::default()).map_err(|error| error.to_string())?;
-    let account = engine
-        .add_account(secret)
-        .map_err(|error| error.to_string())?;
-    let author = account.public_key();
-    engine
-        .set_active_account(Some(author))
-        .map_err(|error| error.to_string())?;
-    let intent = compose_group_send(
-        host.clone(),
-        group_id,
-        author,
-        Timestamp::from(unix_seconds()?),
-        9007,
-        "TTS29 bounded live verification group".into(),
-        Vec::new(),
-        &GroupTimelineEvidence::none(),
-    )
-    .map_err(|error| format!("group creation could not be composed: {error:?}"))?;
-    let receipt = engine
-        .publish_tracked(intent)
-        .map_err(|error| error.to_string())?;
-    let receipt_id = receipt.id.0;
-    let event_id = await_ack(&engine, receipt_id, host, "group creation")?;
-    engine.shutdown();
-    Ok((receipt_id, event_id))
 }
 
 fn await_ack(

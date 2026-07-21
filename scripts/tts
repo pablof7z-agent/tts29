@@ -7,7 +7,7 @@
 # membership and publishes as it.
 #
 # Config:   $TTS29_CONFIG or ~/.config/tts29/daemon.json  (Kokoro/Blossom/group/socket)
-# Secrets:  $TTS29_ENV_FILE or ~/.config/tts29/env        (sourced; TTS29_DAEMON_NSEC, Kokoro creds)
+# Secrets:  $TTS29_ENV_FILE or ~/.config/tts29/env        (sourced; Kokoro creds, optional daemon override)
 # Identity: AGENT_NSEC in the environment signs the update as that agent.
 #
 # Usage:
@@ -75,7 +75,6 @@ PY
 }
 
 if ! socket_alive "$socket"; then
-  [ -n "${TTS29_DAEMON_NSEC:-}" ] || die "TTS29_DAEMON_NSEC is not set (put it in $env_file) — cannot start the daemon"
   daemon_log=${TTS29_LOG:-$(dirname "$socket")/tts29d.log}
   mkdir -p "$(dirname "$daemon_log")"
   echo "tts: starting tts29d…" >&2
