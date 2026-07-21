@@ -1,0 +1,77 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+test_root=$(mktemp -d "/tmp/tts29-launcher-test.XXXXXX")
+cleanup() {
+  local status=$?
+  if [ "$status" -ne 0 ]; then
+    find "$test_root" -name tts29d.log -exec sh -c 'echo "--- $1"; cat "$1"' _ {} \;
+  fi
+  rm -rf "$test_root"
+  exit "$status"
+}
+trap cleanup EXIT
+
+config_dir="$test_root/config"
+mkdir -p "$config_dir"
+
+cat >"$test_root/fake-daemon" <<'PY'
+#!/usr/bin/env python3
+import json
+import os
+import socket
+import sys
+
+config_path = sys.argv[sys.argv.index("--config") + 1]
+with open(config_path, encoding="utf-8") as config_file:
+    socket_path = json.load(config_file)["socket_path"]
+if not os.path.isabs(socket_path):
+    socket_path = os.path.join(os.path.dirname(os.path.abspath(config_path)), socket_path)
+os.makedirs(os.path.dirname(socket_path), exist_ok=True)
+try:
+    os.unlink(socket_path)
+except FileNotFoundError:
+    pass
+server = socket.socket(socket.AF_UNIX)
+server.bind(socket_path)
+server.listen(1)
+for _ in range(3):
+    connection, _ = server.accept()
+    connection.close()
+server.close()
+PY
+
+cat >"$test_root/fake-client" <<'PY'
+#!/usr/bin/env python3
+import os
+import socket
+import sys
+
+socket_path = os.environ["TTS29_SOCKET"]
+client = socket.socket(socket.AF_UNIX)
+client.connect(socket_path)
+client.close()
+sys.stdin.read()
+print(socket_path)
+PY
+chmod +x "$test_root/fake-daemon" "$test_root/fake-client"
+
+run_case() {
+  local configured_socket=$1 expected_socket=$2 config=$config_dir/daemon.json
+  jq -n --arg socket "$configured_socket" \
+    '{socket_path:$socket, group_id:"test", default_voice:"af_heart"}' >"$config"
+
+  TTS29_CONFIG="$config" TTS29_ENV_FILE="$test_root/missing-env" \
+    TTS29D_BIN="$test_root/fake-daemon" TTS29_BIN="$test_root/fake-client" \
+    "$repo_root/scripts/tts" --subject test --message test >"$test_root/output"
+
+  [[ $(<"$test_root/output") == "$expected_socket" ]]
+  rm -f "$expected_socket"
+}
+
+run_case "state/runtime/daemon.sock" "$config_dir/state/runtime/daemon.sock"
+run_case "$test_root/absolute/daemon.sock" "$test_root/absolute/daemon.sock"
+
+printf '%s\n' "tts launcher socket checks passed"

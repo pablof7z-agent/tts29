@@ -41,6 +41,10 @@ fi
 
 socket=$(jq -r '.socket_path' "$config")
 [ "$socket" != "null" ] && [ -n "$socket" ] || die "config is missing socket_path"
+if [[ "$socket" != /* ]]; then
+  config_dir=$(cd "$(dirname "$config")" && pwd)
+  socket="$config_dir/$socket"
+fi
 config_group=$(jq -r '.group_id // empty' "$config")
 config_voice=$(jq -r '.default_voice // "af_heart"' "$config")
 
