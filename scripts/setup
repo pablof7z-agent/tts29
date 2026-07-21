@@ -122,10 +122,18 @@ else
   else
     note "daemon identity will be generated privately on first start: $identity"
   fi
+  kokoro_loopback=false
+  if jq -e '.kokoro.allow_insecure_loopback == true
+      and (.kokoro.endpoint | test("^http://(localhost|127\\.0\\.0\\.1|\\[::1\\])(?::[0-9]+)?(?:/|$)"))' \
+      "$config" >/dev/null 2>&1; then
+    kokoro_loopback=true
+  fi
   if [[ $kokoro == https://* && $kokoro != *example.com* ]]; then
     pass "Kokoro HTTPS endpoint is configured"
+  elif [[ $kokoro_loopback == true ]]; then
+    pass "Kokoro loopback HTTP endpoint is explicitly admitted"
   else
-    fail "Kokoro endpoint must be a non-placeholder https:// URL"
+    fail "Kokoro endpoint must be non-placeholder HTTPS or explicitly admitted loopback HTTP"
   fi
   if [[ $blossom == https://* && $blossom != *example.com* ]]; then
     pass "Blossom HTTPS server is configured"

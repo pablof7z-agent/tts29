@@ -30,15 +30,42 @@ fi
 [[ $(stat -f '%Lp' "$(dirname "$config")") == 700 ]]
 [[ $(stat -f '%Lp' "$config") == 600 ]]
 [[ $(stat -f '%Lp' "$env_file") == 600 ]]
-grep -Fq "Kokoro endpoint must be a non-placeholder" "$output"
+grep -Fq "Kokoro endpoint must be non-placeholder HTTPS" "$output"
 
-jq '.kokoro.endpoint = "https://speech.example.net/v1/audio/speech"
+jq '.kokoro.endpoint = "http://127.0.0.1:18880/v1/audio/speech"
   | .blossom.server = "https://blossom.example.net"
   | .owner_pubkey = ("a" * 64)' "$config" >"$config.next"
 mv "$config.next" "$config"
 chmod 600 "$config"
 printf "TTS29_DAEMON_NSEC='%s'\n" "$secret_marker" >"$env_file"
 chmod 600 "$env_file"
+
+if run_setup --check; then
+  echo "loopback HTTP without explicit admission unexpectedly passed" >&2
+  exit 1
+fi
+grep -Fq "Kokoro endpoint must be non-placeholder HTTPS" "$output"
+
+jq '.kokoro.allow_insecure_loopback = true' "$config" >"$config.next"
+mv "$config.next" "$config"
+chmod 600 "$config"
+
+run_setup --check
+grep -Fq "Kokoro loopback HTTP endpoint is explicitly admitted" "$output"
+
+jq '.kokoro.endpoint = "http://speech.example.net/v1/audio/speech"' \
+  "$config" >"$config.next"
+mv "$config.next" "$config"
+chmod 600 "$config"
+if run_setup --check; then
+  echo "non-loopback HTTP unexpectedly passed" >&2
+  exit 1
+fi
+
+jq '.kokoro.endpoint = "https://speech.example.net/v1/audio/speech"' \
+  "$config" >"$config.next"
+mv "$config.next" "$config"
+chmod 600 "$config"
 
 run_setup --check
 grep -Fq "TTS29 local setup checks passed" "$output"
