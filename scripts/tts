@@ -30,7 +30,8 @@ if [[ ${1:-} == "-h" || ${1:-} == "--help" ]]; then
 fi
 
 command -v jq >/dev/null || die "jq is required"
-[ -f "$config" ] || die "no daemon config at $config (copy daemon/example-config.json and set TTS29_CONFIG)"
+[ -f "$config" ] || die \
+  "no daemon config at $config (run $repo_root/scripts/setup --init, then follow $repo_root/references/setup.md)"
 
 # Secrets never live in the config; source them from a separate env file if present.
 if [ -f "$env_file" ]; then

@@ -1,9 +1,31 @@
 # TTS29 setup
 
 Read this reference when the launcher reports missing configuration, binaries,
-credentials, socket readiness, or daemon startup failures.
+credentials, socket readiness, or daemon startup failures. The goal is to lead
+the user through setup, not merely repeat the list of requirements.
 
-## Requirements
+## Agent-led setup contract
+
+1. Resolve `<skill-dir>` to the directory containing `SKILL.md`.
+2. Run `<skill-dir>/scripts/setup --check`. Report its non-secret findings.
+3. If config is absent and the user wants this machine configured, run
+   `<skill-dir>/scripts/setup --init`. It creates only private skeleton files;
+   it never invents infrastructure or secret values and never overwrites an
+   existing file.
+4. Discover safe values from the current machine and the user's stated target.
+   Ask the user only for the missing host/group, service endpoints, and daemon
+   identity authority. Explain why each missing value is needed.
+5. Configure public values directly. For secrets, ask the user to edit the
+   private env file locally. Never ask them to paste a secret into chat.
+6. Re-run `scripts/setup --check`, resolve every actionable failure, and tell
+   the user before running a first publish because it creates a real durable
+   event in the selected group.
+
+Do not inspect, print, summarize, copy, or screenshot secret values. Presence
+checks must reveal only `present` or `missing`. Do not silently reuse a legacy
+TTS identity, group, or service credential; those are explicit user choices.
+
+## What setup needs
 
 The installed skill contains the TTS29 source and launcher. First use requires:
 
@@ -12,12 +34,13 @@ The installed skill contains the TTS29 source and launcher. First use requires:
 - a daemon Nostr identity with authority to add publishers to the selected
   NIP-29 group;
 - a production HTTPS Kokoro endpoint; and
-- a Blossom server.
+- a public HTTPS Blossom server.
 
 The launcher uses `tts29d` and `tts29` from `PATH`, explicit `TTS29D_BIN` and
-`TTS29_BIN` overrides, or release binaries built from the installed skill.
+`TTS29_BIN` overrides, or release binaries it builds from the installed skill.
+Missing binaries therefore do not block setup when Rust and Cargo are present.
 
-## Configuration
+## Scaffold the private files
 
 The default files are:
 
@@ -26,34 +49,88 @@ The default files are:
 ~/.config/tts29/env
 ```
 
-Start from `<skill-dir>/daemon/example-config.json`. Set the socket, journal,
-work, and optional NMP store paths; selected relay and group; Kokoro endpoint;
-Blossom server; and bounded timeouts. Relative state paths resolve beside the
-configuration file.
+`scripts/setup --init` creates their parent directory with mode `0700`, copies
+`daemon/example-config.json` to the config path, creates an empty env file, and
+sets both files to mode `0600`. Override the locations with `TTS29_CONFIG` and
+`TTS29_ENV_FILE` when a non-default runtime is intentional.
 
-Override the locations with `TTS29_CONFIG` and `TTS29_ENV_FILE`.
+Edit the public config values:
 
-## Secret boundary
+- `host`: the exact `wss://` NIP-29 host;
+- `group_id`: the group shared by producers and players;
+- `kokoro.endpoint`: the production `https://` OpenAI-compatible speech
+  endpoint;
+- `blossom.server`: the public `https://` upload server; and
+- state paths and bounded timeouts, only when the defaults are unsuitable.
 
-Keep the env file private and outside the repository. It may define:
+Relative socket, journal, work, and NMP store paths resolve beside the config
+file. The checked-in example endpoints are placeholders and are intentionally
+reported as incomplete.
 
-- `TTS29_DAEMON_NSEC`;
-- `TTS29_KOKORO_BEARER`; or
-- the mutually exclusive `TTS29_KOKORO_BASIC_USERNAME` and
-  `TTS29_KOKORO_BASIC_PASSWORD`.
+## Enter secrets locally
 
-Use mode `0600`. Never print, commit, screenshot, or copy these values into a
-request. `AGENT_NSEC` belongs to the caller environment for one agent-authored
-submission; the daemon does not persist or return it.
+Have the user open the env file in a local editor whose contents are not sent
+to the agent transcript. It may define:
 
-## Runtime
+```bash
+TTS29_DAEMON_NSEC='nsec1...'
+TTS29_KOKORO_BEARER='...'
+```
 
-`<skill-dir>/scripts/tts` reads the configured socket. If nothing is listening,
-it starts `tts29d`, waits for readiness, and writes daemon output to
-`TTS29_LOG` or `tts29d.log` beside the socket. It refuses startup without the
-daemon identity.
+Kokoro may instead use the mutually dependent
+`TTS29_KOKORO_BASIC_USERNAME` and `TTS29_KOKORO_BASIC_PASSWORD`. Bearer and
+basic authentication are mutually exclusive. A service that needs no auth may
+omit both. Keep the file at mode `0600`.
 
-The daemon identity must be able to manage membership on the configured host.
-The daemon checks the caller author through NMP and adds a missing member before
-publishing. A host rejection or ambiguous administrative delivery stops the
-spoken item rather than bypassing authorization.
+The daemon identity must be an administrator able to manage membership on the
+configured host/group. It checks each request author through NMP and adds a
+missing member before publishing. Host rejection or ambiguous administrative
+delivery stops the item instead of bypassing authorization.
+
+`AGENT_NSEC` is different: it belongs only to the caller environment for one
+agent-authored submission. It must not enter daemon config, the env file,
+journals, request JSON, logs, or responses.
+
+## Verify without publishing
+
+Re-run:
+
+```bash
+<skill-dir>/scripts/setup --check
+```
+
+A ready result proves local prerequisites, non-placeholder public config,
+private file modes, and presence of the daemon identity. It does not prove
+that the credentials are valid, the daemon identity has host authority, the
+services are reachable, or a device can play audio.
+
+## First real verification
+
+Tell the user that this step publishes a durable group event, agree on a stable
+request ID, then use the normal launcher:
+
+```bash
+<skill-dir>/scripts/tts \
+  --agent-id "<agent-name>" \
+  --subject "TTS29 setup complete" \
+  --summary "The producer completed its first publication." \
+  --message "TTS29 setup is complete on this machine." \
+  --request-id "<stable-setup-verification-id>"
+```
+
+The launcher starts the resident daemon when necessary. It writes daemon output
+to `TTS29_LOG` or `tts29d.log` beside the socket. Preserve the returned request,
+receipt, and event IDs. A `published` response proves durable publication, not
+device playback; confirm playback separately in an Apple client using the same
+host and group.
+
+## If setup still fails
+
+- Re-run `scripts/setup --check` after each config change.
+- For daemon startup or socket failure, inspect only the non-secret daemon log.
+- For Kokoro or Blossom failure, verify the configured public URL, auth mode,
+  response contract, and reachability without exposing credentials.
+- For membership failure, confirm the daemon identity is an administrator of
+  the exact configured host/group; do not publish around the daemon.
+- For publication or answer failures, continue with
+  [results-and-troubleshooting.md](results-and-troubleshooting.md).
