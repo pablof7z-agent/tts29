@@ -71,6 +71,11 @@ Relative socket, journal, work, and NMP store paths resolve beside the config
 file. The checked-in example endpoints are placeholders and are intentionally
 reported as incomplete.
 
+Literal `localhost`, `127.0.0.1`, and `::1` Kokoro HTTP endpoints are supported
+only when `kokoro.allow_insecure_loopback` is explicitly `true`. This exception
+is intended for a local service or an encrypted tunnel terminating on loopback;
+non-loopback HTTP remains invalid.
+
 ## Enter secrets locally
 
 Have the user open the env file in a local editor whose contents are not sent
