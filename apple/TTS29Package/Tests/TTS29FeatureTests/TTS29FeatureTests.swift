@@ -10,6 +10,29 @@ import Testing
     #expect(snapshot.statusMessage == "Starting NMP queue…")
 }
 
+@Test func accountAndAnswerReceiptDecodeWithoutExposingASecret() throws {
+    let json = """
+    {
+      "phase":"listening",
+      "relay":"wss://relay.example.com",
+      "group_id":"tts",
+      "items":[],
+      "evidence":{"source_count":1,"shortfall_count":0},
+      "error":null,
+      "identity":{"phase":"signed_in","pubkey":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","error":null},
+      "credential_request":null,
+      "answer_submissions":[{"item_id":"item","phase":"published","receipt_id":7,"event_id":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","error":null}]
+    }
+    """
+
+    let snapshot = try JSONDecoder().decode(QueueSnapshot.self, from: Data(json.utf8))
+
+    #expect(snapshot.identity.phase == .signedIn)
+    #expect(snapshot.identity.shortPubkey == "aaaaaaaa…aaaa")
+    #expect(snapshot.answerSubmission(for: "item")?.phase == .published)
+    #expect(!json.contains("nsec"))
+}
+
 @Test func savedConnectionOverridesBundledBootstrapIndependently() {
     let suite = "tts29.connection.\(UUID().uuidString)"
     let defaults = UserDefaults(suiteName: suite)!

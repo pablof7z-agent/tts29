@@ -13,6 +13,29 @@ private func startKernel(
     _ context: UnsafeMutableRawPointer?
 ) -> UnsafeMutableRawPointer?
 
+@_silgen_name("tts29_login")
+private func loginKernel(_ handle: UnsafeMutableRawPointer?, _ secret: UnsafePointer<CChar>)
+
+@_silgen_name("tts29_restore_login")
+private func restoreKernelLogin(_ handle: UnsafeMutableRawPointer?, _ secret: UnsafePointer<CChar>)
+
+@_silgen_name("tts29_credential_load_failed")
+private func reportCredentialLoadFailure(
+    _ handle: UnsafeMutableRawPointer?,
+    _ error: UnsafePointer<CChar>
+)
+
+@_silgen_name("tts29_dispatch")
+private func dispatchKernel(_ handle: UnsafeMutableRawPointer?, _ action: UnsafePointer<CChar>)
+
+@_silgen_name("tts29_credential_result")
+private func reportCredentialResult(
+    _ handle: UnsafeMutableRawPointer?,
+    _ requestID: UInt64,
+    _ succeeded: Bool,
+    _ error: UnsafePointer<CChar>?
+)
+
 @_silgen_name("tts29_stop")
 private func stopKernel(_ handle: UnsafeMutableRawPointer?)
 
@@ -21,16 +44,26 @@ private func stopKernel(_ handle: UnsafeMutableRawPointer?)
 public final class TTS29Store {
     public private(set) var snapshot: QueueSnapshot
     private var isRunning = false
+    private var handleBits: UInt?
+    private var pendingSecret: String?
+    private var lastCredentialRequestID: UInt64?
     private let usesInjectedSnapshot: Bool
+    private let vault: any CredentialVault
 
     public init(initialSnapshot: QueueSnapshot? = nil) {
         snapshot = initialSnapshot ?? .initial
         usesInjectedSnapshot = initialSnapshot != nil
+        vault = KeychainCredentialVault()
+    }
+
+    init(initialSnapshot: QueueSnapshot? = nil, vault: any CredentialVault) {
+        snapshot = initialSnapshot ?? .initial
+        usesInjectedSnapshot = initialSnapshot != nil
+        self.vault = vault
     }
 
     public func run() async {
-        guard !usesInjectedSnapshot else { return }
-        guard !isRunning else { return }
+        guard !usesInjectedSnapshot, !isRunning else { return }
         isRunning = true
         defer { isRunning = false }
 
@@ -44,16 +77,107 @@ public final class TTS29Store {
             snapshot = .startupFailure("The Rust kernel refused startup.")
             return
         }
+        handleBits = UInt(bitPattern: handle)
+        restoreCredential(using: handle)
 
         for await value in bridge.snapshots {
             snapshot = value
+            await executeCredentialRequest(value.credentialRequest)
+            if value.identity.phase == .signedOut, value.credentialRequest == nil {
+                pendingSecret = nil
+            }
         }
 
-        let handleBits = UInt(bitPattern: handle)
+        handleBits = nil
+        let bits = UInt(bitPattern: handle)
         await Task.detached {
-            stopKernel(UnsafeMutableRawPointer(bitPattern: handleBits))
+            stopKernel(UnsafeMutableRawPointer(bitPattern: bits))
         }.value
         Unmanaged<SnapshotBridge>.fromOpaque(context).release()
+    }
+
+    public func login(nsec: String) {
+        guard let handle = handle else { return }
+        pendingSecret = nsec
+        nsec.withCString { loginKernel(handle, $0) }
+    }
+
+    public func logout() {
+        dispatch(LogoutAction())
+    }
+
+    public func submitAnswer(itemID: String, answers: [QuestionAnswer]) {
+        dispatch(SubmitAnswerAction(itemID: itemID, answers: answers))
+    }
+
+    private var handle: UnsafeMutableRawPointer? {
+        handleBits.flatMap(UnsafeMutableRawPointer.init(bitPattern:))
+    }
+
+    private func restoreCredential(using handle: UnsafeMutableRawPointer) {
+        do {
+            guard let secret = try vault.load() else { return }
+            secret.withCString { restoreKernelLogin(handle, $0) }
+        } catch {
+            error.localizedDescription.withCString {
+                reportCredentialLoadFailure(handle, $0)
+            }
+        }
+    }
+
+    private func executeCredentialRequest(_ request: CredentialRequest?) async {
+        guard let request, request.id != lastCredentialRequestID, let handle else { return }
+        lastCredentialRequestID = request.id
+        let vault = vault
+        let result: VaultResult
+        switch request.operation {
+        case .store:
+            guard let secret = pendingSecret else {
+                report(request, result: .failure("The pending login was unavailable."), to: handle)
+                return
+            }
+            pendingSecret = nil
+            result = await Task.detached {
+                do {
+                    try vault.save(secret)
+                    return VaultResult.success
+                } catch {
+                    return VaultResult.failure(error.localizedDescription)
+                }
+            }.value
+        case .delete:
+            result = await Task.detached {
+                do {
+                    try vault.delete()
+                    return VaultResult.success
+                } catch {
+                    return VaultResult.failure(error.localizedDescription)
+                }
+            }.value
+        }
+        report(request, result: result, to: handle)
+    }
+
+    private func report(
+        _ request: CredentialRequest,
+        result: VaultResult,
+        to handle: UnsafeMutableRawPointer
+    ) {
+        switch result {
+        case .success:
+            reportCredentialResult(handle, request.id, true, nil)
+        case let .failure(error):
+            error.withCString {
+                reportCredentialResult(handle, request.id, false, $0)
+            }
+        }
+    }
+
+    private func dispatch<Action: Encodable>(_ action: Action) {
+        guard let handle,
+              let data = try? JSONEncoder().encode(action),
+              let json = String(data: data, encoding: .utf8) else { return }
+        json.withCString { dispatchKernel(handle, $0) }
     }
 
     private static func configurationJSON() -> String? {
@@ -62,14 +186,9 @@ public final class TTS29Store {
             in: .userDomainMask
         ).first
         if let directory {
-            try? FileManager.default.createDirectory(
-                at: directory,
-                withIntermediateDirectories: true
-            )
+            try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         }
-        guard let bootstrap = ConnectionSettings.current() else {
-            return nil
-        }
+        guard let bootstrap = ConnectionSettings.current() else { return nil }
         let configuration = KernelConfiguration(
             relay: bootstrap.relay,
             groupID: bootstrap.groupID,
@@ -77,6 +196,26 @@ public final class TTS29Store {
         )
         guard let data = try? JSONEncoder().encode(configuration) else { return nil }
         return String(data: data, encoding: .utf8)
+    }
+}
+
+private enum VaultResult: Sendable {
+    case success
+    case failure(String)
+}
+
+private struct LogoutAction: Encodable {
+    let type = "logout"
+}
+
+private struct SubmitAnswerAction: Encodable {
+    let type = "submit_answer"
+    let itemID: String
+    let answers: [QuestionAnswer]
+
+    enum CodingKeys: String, CodingKey {
+        case type, answers
+        case itemID = "item_id"
     }
 }
 
@@ -108,9 +247,7 @@ private final class SnapshotBridge: @unchecked Sendable {
             return
         }
         continuation.yield(snapshot)
-        if snapshot.phase == .stopped {
-            continuation.finish()
-        }
+        if snapshot.phase == .stopped { continuation.finish() }
     }
 }
 

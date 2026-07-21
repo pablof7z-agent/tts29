@@ -2,7 +2,9 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use nmp::{AcquisitionEvidence, Row};
 
-use crate::model::{KernelConfiguration, KernelPhase, QueueEvidence, QueueSnapshot};
+use crate::model::{
+    IdentitySnapshot, KernelConfiguration, KernelPhase, QueueEvidence, QueueSnapshot,
+};
 use tts29_protocol::{
     parse, valid_answer, Acknowledgement, AcknowledgementState, AnswerBundle, ParsedEvent,
     Reaction, ReactionSummary, SpokenItem,
@@ -145,6 +147,9 @@ pub fn project(
             rejected_event_count,
         },
         error: None,
+        identity: IdentitySnapshot::signed_out(),
+        credential_request: None,
+        answer_submissions: Vec::new(),
     }
 }
 
@@ -162,10 +167,7 @@ fn assemble_subtree(
         return None;
     }
     let mut item = resolved.get(id)?.clone();
-    let child_ids = children_by_parent
-        .get(id)
-        .cloned()
-        .unwrap_or_default();
+    let child_ids = children_by_parent.get(id).cloned().unwrap_or_default();
     if depth >= MAX_ATTACH_DEPTH {
         *rejected += child_ids.len();
         item.children = Vec::new();
@@ -177,8 +179,14 @@ fn assemble_subtree(
             *rejected += 1;
             continue;
         }
-        match assemble_subtree(&child_id, resolved, children_by_parent, depth + 1, visited, rejected)
-        {
+        match assemble_subtree(
+            &child_id,
+            resolved,
+            children_by_parent,
+            depth + 1,
+            visited,
+            rejected,
+        ) {
             Some(child) => children.push(child),
             None => *rejected += 1,
         }
