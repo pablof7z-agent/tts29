@@ -11,6 +11,13 @@ fn run() -> Result<(), String> {
     let config_path = config_argument()?;
     let loaded = tts29_daemon::load_daemon_config(config_path)?;
     let mut producer = tts29_daemon::ProductionProducer::open(loaded.production)?;
+    let bootstrap = producer.bootstrap_evidence();
+    eprintln!(
+        "tts29d: daemon={} group_created={} owner_promoted={}",
+        bootstrap.daemon_pubkey,
+        bootstrap.group_created_event_id.is_some(),
+        bootstrap.owner_admin_event_id.is_some()
+    );
     let listener = tts29_daemon::PrivateUnixListener::bind(&loaded.socket_path)
         .map_err(|error| format!("local endpoint could not start: {error}"))?;
     let shutdown = tts29_daemon::LocalServerShutdown::new(listener.path());

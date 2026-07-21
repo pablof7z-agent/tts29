@@ -1,6 +1,8 @@
 mod answer_wait;
 mod blossom;
 mod daemon_config;
+mod daemon_identity;
+mod group_bootstrap;
 mod identity;
 mod journal;
 mod kokoro;
@@ -13,6 +15,7 @@ mod local_server;
 mod local_service;
 mod model;
 mod nmp_publisher;
+mod nmp_receipt;
 mod production;
 mod request;
 mod runner;
@@ -20,10 +23,13 @@ mod runner;
 pub use answer_wait::{AnswerWaitCancel, AnswerWaitError, AnswerWaiter};
 pub use blossom::{BlossomArtifactUploader, BlossomUploadConfig, Clock, SystemClock};
 pub use daemon_config::{load_daemon_config, LoadedDaemonConfig};
+pub use group_bootstrap::GroupBootstrapEvidence;
 pub use journal::{FileJobJournal, InsertOutcome, JobJournal, JournalError};
 pub use kokoro::{KokoroAuth, KokoroConfig, KokoroSynthesizer};
 #[cfg(unix)]
-pub use live_smoke::{run_live_relay_smoke, run_tree_relay_smoke, LiveRelayEvidence, TreeSmokeEvidence};
+pub use live_smoke::{
+    run_live_relay_smoke, run_tree_relay_smoke, LiveRelayEvidence, TreeSmokeEvidence,
+};
 #[cfg(unix)]
 pub use local_server::{
     serve_forever, serve_one, serve_until_shutdown, LocalServerShutdown, PrivateUnixListener,

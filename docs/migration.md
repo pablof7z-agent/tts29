@@ -26,8 +26,10 @@ no mixed-authority transition period.
 
 ## Fresh standalone setup
 
-1. Choose the user-controlled NIP-29 host and group. Authorize the daemon
-   identity as an administrator able to manage local publishers.
+1. Choose the user-controlled NIP-29 host and group and configure the human
+   owner's public key. The daemon creates its own identity and, for a new group,
+   grants that public key the `admin` role. An existing group must already trust
+   the daemon identity.
 2. Configure and start `tts29d` with its private journal, NMP store, Kokoro,
    Blossom, and group settings from [local-producer.md](local-producer.md).
 3. Open **Connection** in each Apple client, enter the same host/group, and

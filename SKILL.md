@@ -52,8 +52,11 @@ the agent. Never put it in arguments, JSON, source, logs, screenshots, or tool
 output, and never print or inspect its value. Without it, the daemon identity
 signs the item.
 
-Keep the daemon identity and Kokoro credentials in the private TTS29 env file.
-Do not add secret fields to daemon configuration. Read
+The daemon generates and persists its own private identity on first start.
+Configure the human owner only by public npub or hex key. Kokoro credentials
+belong in the private TTS29 env file; `TTS29_DAEMON_NSEC` is only an optional
+deployment override for the daemon-owned key. Do not add secret fields to
+daemon configuration. Read
 [setup.md](references/setup.md) before configuring or repairing a runtime.
 
 ## First-run setup

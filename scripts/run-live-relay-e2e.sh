@@ -43,17 +43,11 @@ elif [[ -z "${KOKORO_API_ENDPOINT:-}" && -f "$kokoro_env" ]]; then
   set +a
 fi
 
-daemon_secret=${TTS29_DAEMON_NSEC:-${AGENT_NSEC:-}}
-if [[ -z "$daemon_secret" ]]; then
-  echo "TTS29_DAEMON_NSEC or AGENT_NSEC is required" >&2
-  exit 1
-fi
 if [[ -z "${KOKORO_API_ENDPOINT:-}" ]]; then
   echo "KOKORO_API_ENDPOINT is required directly or through KOKORO_ENV_FILE" >&2
   exit 1
 fi
 
-export TTS29_DAEMON_NSEC="$daemon_secret"
 if [[ -n "${KOKORO_API_KEY:-}" ]]; then
   export TTS29_KOKORO_BEARER="$KOKORO_API_KEY"
   unset TTS29_KOKORO_BASIC_USERNAME TTS29_KOKORO_BASIC_PASSWORD
@@ -79,6 +73,7 @@ jq -n \
   --arg store "$live_root/nmp" \
   --arg host "$relay" \
   --arg group "$group_id" \
+  --arg identity "$live_root/daemon.key" \
   --arg kokoro "$KOKORO_API_ENDPOINT" \
   --arg blossom "$blossom" \
   '{
@@ -86,8 +81,10 @@ jq -n \
     journal_root: $journal,
     work_root: $work,
     nmp_store_path: $store,
+    daemon_identity_path: $identity,
     host: $host,
     group_id: $group,
+    owner_pubkey: ("1" * 64),
     kokoro: {
       endpoint: $kokoro,
       request_timeout_seconds: 120,

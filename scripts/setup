@@ -91,6 +91,8 @@ else
 
   host=$(jq -r '.host // empty' "$config")
   group=$(jq -r '.group_id // empty' "$config")
+  owner=$(jq -r '.owner_pubkey // empty' "$config")
+  identity=$(jq -r '.daemon_identity_path // "daemon.key"' "$config")
   kokoro=$(jq -r '.kokoro.endpoint // empty' "$config")
   blossom=$(jq -r '.blossom.server // empty' "$config")
   if [[ $host == wss://* ]]; then
@@ -102,6 +104,23 @@ else
     pass "NIP-29 group is configured"
   else
     fail "group_id is missing"
+  fi
+  if [[ $owner =~ ^[0-9a-fA-F]{64}$ || $owner =~ ^npub1[[:alnum:]]{58}$ ]]; then
+    pass "owner public key is configured"
+  else
+    fail "owner_pubkey must be a public npub or 64-character hex key"
+  fi
+  if [[ $identity != /* ]]; then
+    identity="$(dirname "$config")/$identity"
+  fi
+  if [[ -e $identity ]]; then
+    if [[ -f $identity ]] && private_mode "$identity"; then
+      pass "daemon-owned identity is present and private"
+    else
+      fail "daemon identity must be a private regular file: $identity"
+    fi
+  else
+    note "daemon identity will be generated privately on first start: $identity"
   fi
   if [[ $kokoro == https://* && $kokoro != *example.com* ]]; then
     pass "Kokoro HTTPS endpoint is configured"
@@ -144,9 +163,9 @@ else
   fi
 
   if env_has TTS29_DAEMON_NSEC; then
-    pass "daemon identity is present (value not printed)"
+    note "optional daemon identity deployment override is present (value not printed)"
   else
-    fail "TTS29_DAEMON_NSEC is missing from the environment and private env file"
+    pass "no daemon identity override is set; the daemon-owned identity file will be used"
   fi
 
   bearer=false

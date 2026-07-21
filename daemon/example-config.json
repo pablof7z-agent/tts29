@@ -3,8 +3,10 @@
   "journal_root": "state/jobs",
   "work_root": "state/work",
   "nmp_store_path": "state/nmp",
+  "daemon_identity_path": "daemon.key",
   "host": "wss://nip29.f7z.io",
   "group_id": "tts",
+  "owner_pubkey": "OWNER_NPUB_OR_HEX",
   "kokoro": {
     "endpoint": "https://kokoro.example.com/v1/audio/speech",
     "request_timeout_seconds": 120,

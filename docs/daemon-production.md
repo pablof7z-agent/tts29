@@ -9,14 +9,16 @@ Startup requires:
 
 - private journal and work directories;
 - an optional persistent NMP store path;
-- one producer secret key accepted by `Engine::add_account`;
-- one NIP-29 host and group ID;
+- one daemon-owned private identity path (generated on first start);
+- one NIP-29 host, group ID, and human owner public key;
 - a Kokoro speech endpoint and optional bearer or basic authentication;
 - one Blossom server; and
 - bounded request, upload-authorization, and receipt timeouts.
 
-The secret key and Kokoro credentials are capability configuration. They have
-no serialization or debug representation and are never copied into job JSON.
+The daemon identity is created with mode `0600`, reused across restarts, and
+registered through `Engine::add_account`. `TTS29_DAEMON_NSEC` is an optional
+deployment override, not a user identity requirement. The identity and Kokoro
+credentials have no debug representation and are never copied into job JSON.
 Invalid keys, URLs, group IDs, and zero-sized limits fail startup or the current
 stage without exposing credentials.
 
@@ -45,6 +47,13 @@ The content digest is the artifact identity, so a retry targets the same blob.
 ## Group publication
 
 The same NMP engine owns the active account and tracked NIP-29 publication.
+At startup it inspects kind `39000`/`39001` state through a strict demand pinned
+to the selected host. If the group is absent, the daemon creates it with kind
+`9007`; if the configured public owner is not yet an administrator, the daemon
+adds it with kind `9000` and the `admin` role. An existing group is accepted
+only when this daemon identity is already an administrator; the daemon never
+tries to seize a group controlled by another key.
+
 `NmpPublisher` rejects items outside the configured group. The recovery runner
 freezes the complete item before acceptance, journals the receipt ID, and then
 reattaches that receipt until the configured host acknowledges the signed event.
