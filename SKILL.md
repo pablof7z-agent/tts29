@@ -30,10 +30,22 @@ spoken message. Supply a stable request ID whenever a retry may be needed:
   --request-id "<stable-id>"
 ```
 
-Keep the title and agent name stable within one work stream. Make the summary
-useful in the queue without repeating the title. Write the message for
-listening: put the outcome first, use short sentences, and omit raw logs,
-secret values, and terminal noise.
+Keep the title and agent name stable within one work stream. Aim for a
+two-to-five-word title and never exceed ten words. Name the specific topic and
+meaningful state, such as `NMP Boundaries Clarified` or
+`Release Candidate Verified`. Avoid generic workflow labels such as `update`,
+`recap`, `implementation`, and `final` unless they are genuinely the subject.
+
+Write the summary as one concise factual sentence stating what changed or why
+it matters. Make it useful in the queue without repeating the title. Do not
+repeat the agent identity in the message.
+
+Write for listening. Put the outcome first, use short sentences and paragraphs,
+and aim to keep the primary message under 300 spoken words. Omit raw logs,
+secret values, terminal noise, and source code that would be painful to hear.
+When supporting material matters, keep the primary update concise and move the
+depth into file or narrated branches described in
+[rich-content.md](references/rich-content.md).
 
 `--message` accepts literal text, `@path`, or `-` for standard input. The
 command stays in the foreground until durable publication succeeds or fails.
