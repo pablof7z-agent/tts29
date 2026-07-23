@@ -48,6 +48,10 @@ JSON
 Replace the example request ID with one stable for the actual operation. Use
 the configured group unless the user explicitly selects another one.
 
+Make the spoken body provide the outcome and context the user needs before
+answering. Do not read the question list aloud or repeat structured question
+text in the body.
+
 ## Question rules
 
 An item may contain at most three questions.
@@ -59,7 +63,12 @@ An item may contain at most three questions.
 - Give choice questions one to eight options with stable IDs. Give freeform
   questions no options.
 - Keep question and option IDs to 1-64 ASCII letters, digits, `_`, or `-`.
-- Use descriptions only when they clarify the consequence or needed context.
+- Use choice questions only when the options represent real alternatives. Use
+  freeform when the answer space is genuinely open.
+- Keep option titles short. Use option descriptions to explain consequences or
+  tradeoffs rather than restating the title.
+- Use question descriptions only when they clarify why the decision matters or
+  provide context not already present in the spoken body.
 
 Do not add a catch-all “Other” option unless the product decision genuinely
 requires it; freeform questions already represent open text.

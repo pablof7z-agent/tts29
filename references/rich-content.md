@@ -11,6 +11,13 @@ links, or narrated supporting branches.
   durable at public HTTPS URLs with known SHA-256, media type, and byte count.
   Do not put local paths there.
 
+Use supporting material when it helps the user inspect evidence or explore the
+update in a useful direction: screenshots, mockups, proposals, detailed
+findings, or decision context. Keep the root focused on the outcome and organize
+narrated branches to fit the material, such as progressive disclosure,
+per-decision context, chapters, or a walkthrough. Do not flatten every detail
+into the primary root.
+
 ## Spoken tree
 
 A `SpokenTree` points to local files. The daemon reads them, synthesizes spoken
@@ -48,6 +55,11 @@ Each attachment has exactly one of:
 - `file`: upload the bytes as a file attachment on the current item;
 - `message`: synthesize and publish a narrated child item.
 
+Give attachments short human labels instead of exposing raw filenames when a
+clearer label exists. Use narrated children for explanation worth hearing. Use
+file attachments for screenshots, mockups, source files, raw logs, and
+diagnostic captures that should remain inspectable without being read aloud.
+
 The optional `questions` array on the root or a narrated child uses the schema
 in [asking-questions.md](asking-questions.md). Tree submission does not open an
 answer wait.
@@ -65,7 +77,14 @@ child uses that label as its title. File attachments do not need this link.
 
 Keep nesting within three levels and no more than twelve children per node.
 Prefer a concise root update with only the branches that materially help the
-user; do not attach routine logs or duplicate the main message.
+user. Keep each narrated child focused; split long material into clearly
+labeled siblings instead of creating another wall of speech. Do not attach
+routine logs, duplicate the main message, or create supplemental files merely
+to make an update look substantial.
+
+Use short Markdown headings and lists when they make a narrated transcript
+easier to scan. Describe code in plain language and attach the source when the
+literal code would be painful to hear.
 
 ## Result
 
